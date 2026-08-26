@@ -1967,8 +1967,8 @@
                 <div class="row total-row"><span>📊 <strong>Total Issue Detections</strong></span><span id="estTotalDiseases">0</span></div>
                 <div class="row info-row" id="severityStatusRow"><span><i class="fas fa-heartbeat" style="color:#2d7a4a;"></i> Crop Health Status: <span id="estSeverityStatus">✅ Healthy</span></span></div>
                 <div class="recommendation-box" id="diseaseRecommendationBox">
-                    <div class="rec-title">💡 AI Recommendation</div>
-                    <div class="rec-text" id="diseaseRecommendationText">No issues detected. Keep monitoring your coffee plants regularly.</div>
+                    <div class="rec-title">💡 Field Guidance</div>
+                    <div class="rec-text" id="diseaseRecommendationText">No clear disease signs were found. Check the underside of the leaf and continue routine checks.</div>
                 </div>
             </div>
         </div>
@@ -2028,7 +2028,7 @@
             <div class="upload-area" onclick="document.getElementById('fileInput').click()">
                 <i class="fas fa-cloud-upload-alt"></i>
                 <p><strong>Tap to upload</strong> or drag & drop</p>
-                <p class="sub">Supported: JPG, PNG, WEBP (Max 10MB each)</p>
+                <p class="sub">Supported: JPG, PNG, WEBP (Max 10MB each, up to 300 images)</p>
                 <p class="sub" style="color:#8b1a1a; font-weight:600;">☕ Only coffee leaf images will be accepted (validated by AI)</p>
                 <input type="file" id="fileInput" accept="image/*" multiple onchange="handleMultipleFileUpload(event)" />
             </div>
@@ -2313,7 +2313,7 @@
         </div>
         <div class="about-simple" style="background: #f5ede8; border-left: 4px solid #8b1a1a;">
             <h4><span class="icon">📱</span> How to Use</h4>
-            <p><strong>1.</strong> Take a clear photo of your coffee leaves<br><strong>2.</strong> Upload it to CoffeeGuard<br><strong>3.</strong> Get instant disease and pest detection with confidence scores<br><strong>4.</strong> Follow the AI recommendations to protect your crop</p>
+            <p><strong>1.</strong> Take a clear photo of your coffee leaves<br><strong>2.</strong> Upload it to CoffeeGuard<br><strong>3.</strong> Get instant disease and pest detection with confidence scores<br><strong>4.</strong> Use the field guidance to protect your crop</p>
         </div>
         <p style="color:#7a5a4a; font-size:0.85rem; border-top:1px solid #f0e0d8; padding-top:12px; margin-top:12px;"><i class="fas fa-code"></i> Version 2.0.3 &nbsp;|&nbsp; <i class="fas fa-copyright"></i> 2026 CoffeeGuard</p>
         <div class="btn-group"><button onclick="closeModal('aboutModal')">Close</button></div>
@@ -2400,8 +2400,8 @@ const translations = {
         lowRiskLabel: "Low Risk",
         moderateRiskLabel: "Moderate Risk",
         highRiskLabel: "High Risk",
-        aiRecommendationLabel: "AI Recommendation",
-        noDiseaseRec: "No issues detected. Keep monitoring your coffee plants regularly.",
+        aiRecommendationLabel: "Field Guidance",
+        noDiseaseRec: "No clear disease signs were found. Check the underside of the leaf and continue routine checks.",
         diseaseDistributionLabel: "Issue Distribution",
         diseaseBreakdownLabel: "Issue Breakdown",
         diseaseDetectionStudio: "Disease & Pest Detection Studio",
@@ -2429,7 +2429,7 @@ const translations = {
         reportsSubtext: "View and manage your coffee disease and pest reports.",
         aboutDesc: "CoffeeGuard uses AI to detect important coffee leaf diseases and pests. Just upload a photo, and CoffeeGuard identifies Brown Eye Spot, Leaf Miner, Leaf Rust, or No Disease.",
         step3: "Get instant disease and pest detection with confidence scores",
-        step4: "Follow the AI recommendations to protect your crop",
+        step4: "Use the field guidance to protect your crop",
         langPreviewText: "Hello! CoffeeGuard helps you detect coffee leaf diseases and pests."
     },
     lg: {
@@ -2491,7 +2491,7 @@ const translations = {
 let currentLang = localStorage.getItem('coffeeGuardLang') || 'en';
 let audioEnabled = localStorage.getItem('coffeeGuardAudio') !== 'false';
 let uploadedFiles = [];
-let uploadedImageData = [];
+let uploadedPreviewUrls = [];
 let isValidating = false;
 let predictions = [];
 let reports = [];
@@ -2773,7 +2773,7 @@ function updateAvatarDisplay() {
 // ============================================================
 async function fetchPredictionsFromServer() {
     try {
-        const response = await fetch('/history', {
+        const response = await fetch('/history?limit=300', {
             method: 'GET',
             credentials: 'include'
         });
@@ -2791,7 +2791,7 @@ async function fetchPredictionsFromServer() {
                 disease_count: p.disease_count || 0,
                 class_counts: p.class_counts || {},
                 date: p.timestamp || new Date().toISOString(),
-                failed: p.result === 'no_disease',
+                failed: Boolean(p.failed),
                 severity: p.severity || 'healthy',
                 recommendation: p.recommendation || ''
             }));
@@ -2996,36 +2996,36 @@ function updateDiseaseEstimator() {
     
     // Determine severity
     let status = '✅ Healthy';
-    let rec = 'No issues detected. Keep monitoring your coffee plants regularly.';
+    let rec = 'No clear disease signs were found. Check the underside of the leaf and continue routine checks.';
     let boxClass = '';
     
     if (total === 0) {
         status = '✅ Healthy';
-        rec = 'No issues detected. Keep monitoring your coffee plants regularly.';
+        rec = 'No clear disease signs were found. Check the underside of the leaf and continue routine checks.';
         boxClass = '';
     } else if (total < 3) {
         status = '🟢 Low Risk';
-        rec = '🟢 Low issue presence detected. Monitor closely and consider preventive measures.';
+        rec = 'A small number of affected areas were found. Mark the plant, remove badly affected leaves, and check nearby plants.';
         boxClass = '';
     } else if (total < 8) {
         status = '🟡 Moderate Risk';
-        rec = '🟡 Moderate issue presence. Take action to control the spread.';
+        rec = 'Several affected areas were found. Remove badly affected leaves, clean tools after use, and inspect nearby plants.';
         boxClass = 'warning';
     } else {
         status = '🔴 High Risk';
-        rec = '🔴 High issue presence detected. Immediate action required to protect your crop.';
+        rec = 'Many affected areas were found. Separate this plant if possible, remove badly infected leaves, and contact an extension officer promptly.';
         boxClass = 'danger';
     }
     
     // Add specific recommendations
     if (leafRust > 0) {
-        rec = '🔥 Leaf Rust detected. Apply a recommended fungicide and remove heavily infected leaves where appropriate.';
+        rec = 'Leaf Rust detected. Check the underside of the leaves, remove heavily infected leaves, and ask an extension officer which approved fungicide to use locally.';
         boxClass = 'danger';
     } else if (brownEye > 0) {
-        rec = '🍂 Brown Eye Spot detected. Monitor affected leaves, improve field sanitation, and consider an appropriate fungicide if the disease is spreading.';
+        rec = 'Brown Eye Spot detected. Remove badly affected leaves, clear fallen leaves from around the plant, and check nearby plants for the same spots.';
         boxClass = 'warning';
     } else if (leafMiner > 0) {
-        rec = '🐛 Leaf Miner detected. Monitor infestation and use integrated pest management where needed.';
+        rec = 'Leaf Miner detected. Remove mined leaves, check nearby plants for fresh tunnels, and follow local pest management advice before using pesticide.';
         boxClass = 'warning';
     }
     
@@ -3041,7 +3041,7 @@ function updateDiseaseEstimator() {
 function loadHistory() {
     const tbody = document.getElementById('historyBody');
     tbody.innerHTML = '';
-    const recent = [...predictions].reverse().slice(0, 20);
+    const recent = [...predictions].reverse();
     
     if (recent.length === 0) {
         tbody.innerHTML = '<tr><td colspan="6" style="text-align:center; color:#8a7a6a; padding:20px;">No detections yet. Upload some coffee leaf images to get started!</td></tr>';
@@ -3054,24 +3054,26 @@ function loadHistory() {
         const check = document.createElement('input');
         check.type = 'checkbox';
         check.className = 'prediction-checkbox';
+        check.dataset.id = p.id || '';
         check.dataset.index = predictions.length - 1 - idx;
         check.onchange = () => updateBulkActions();
         checkTd.appendChild(check);
         tr.appendChild(checkTd);
         
         const imgTd = document.createElement('td');
-        imgTd.textContent = p.image_data ? '🖼️' : '📷';
+        imgTd.textContent = p.image_url ? '🖼️' : '📷';
         tr.appendChild(imgTd);
         
         const resultTd = document.createElement('td');
-        const displayName = p.result === 'no_disease' ? 'No Disease' : 
-                           p.result === 'brown_eye_spot' ? 'Brown Eye Spot' :
-                           p.result === 'leaf_miner' ? 'Leaf Miner' :
-                           p.result === 'leaf_rust' ? 'Leaf Rust' : p.result;
-        const badgeClass = p.result === 'no_disease' ? 'badge-no-disease' :
-                           p.result === 'brown_eye_spot' ? 'badge-brown-eye' :
-                           p.result === 'leaf_miner' ? 'badge-leaf-miner' :
-                           p.result === 'leaf_rust' ? 'badge-leaf-rust' : 'badge-no-disease';
+        const resultKey = predictionKey(p);
+        const displayName = resultKey === 'no_disease' ? 'No Disease' :
+                           resultKey === 'brown_eye_spot' ? 'Brown Eye Spot' :
+                           resultKey === 'leaf_miner' ? 'Leaf Miner' :
+                           resultKey === 'leaf_rust' ? 'Leaf Rust' : p.result;
+        const badgeClass = resultKey === 'no_disease' ? 'badge-no-disease' :
+                           resultKey === 'brown_eye_spot' ? 'badge-brown-eye' :
+                           resultKey === 'leaf_miner' ? 'badge-leaf-miner' :
+                           resultKey === 'leaf_rust' ? 'badge-leaf-rust' : 'badge-no-disease';
         resultTd.innerHTML = `<span class="badge ${badgeClass}">${displayName}</span>`;
         tr.appendChild(resultTd);
         
@@ -3106,9 +3108,9 @@ function renderGallery() {
     const empty = document.getElementById('galleryEmpty');
     const filter = document.getElementById('galleryFilter').value;
     
-    let items = predictions.filter(p => !p.failed && p.image_data);
+    let items = predictions.filter(p => !p.failed && p.image_url);
     if (filter !== 'all') {
-        items = items.filter(p => p.result === filter);
+        items = items.filter(p => predictionKey(p) === filter);
     }
     
     if (items.length === 0) {
@@ -3123,18 +3125,19 @@ function renderGallery() {
         const div = document.createElement('div');
         div.className = 'gallery-item';
         const img = document.createElement('img');
-        img.src = p.image_data || 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="100" height="100"%3E%3Crect width="100" height="100" fill="%23ddd"/%3E%3Ctext x="50" y="50" text-anchor="middle" dy=".3em" font-size="40"%3E📷%3C/text%3E%3C/svg%3E';
-        img.alt = p.result;
+        img.src = p.image_url;
+        img.alt = predictionKey(p);
         const badge = document.createElement('span');
-        const badgeClass = p.result === 'no_disease' ? 'no-disease' :
-                           p.result === 'brown_eye_spot' ? 'brown-eye-spot' :
-                           p.result === 'leaf_miner' ? 'leaf-miner' :
-                           p.result === 'leaf_rust' ? 'leaf-rust' : 'no-disease';
+        const resultKey = predictionKey(p);
+        const badgeClass = resultKey === 'no_disease' ? 'no-disease' :
+                           resultKey === 'brown_eye_spot' ? 'brown-eye-spot' :
+                           resultKey === 'leaf_miner' ? 'leaf-miner' :
+                           resultKey === 'leaf_rust' ? 'leaf-rust' : 'no-disease';
         badge.className = `gallery-badge ${badgeClass}`;
-        const displayName = p.result === 'no_disease' ? 'No Disease' : 
-                           p.result === 'brown_eye_spot' ? 'Brown Eye Spot' :
-                           p.result === 'leaf_miner' ? 'Leaf Miner' :
-                           p.result === 'leaf_rust' ? 'Leaf Rust' : p.result;
+        const displayName = resultKey === 'no_disease' ? 'No Disease' :
+                           resultKey === 'brown_eye_spot' ? 'Brown Eye Spot' :
+                           resultKey === 'leaf_miner' ? 'Leaf Miner' :
+                           resultKey === 'leaf_rust' ? 'Leaf Rust' : p.result;
         badge.textContent = displayName;
         const countBadge = document.createElement('span');
         countBadge.style.cssText = 'position:absolute; top:4px; left:4px; background:rgba(0,0,0,0.7); color:white; padding:2px 8px; border-radius:12px; font-size:0.6rem;';
@@ -3168,20 +3171,25 @@ function renderGallery() {
 async function handleMultipleFileUpload(event) {
     const files = event.target.files;
     if (!files || files.length === 0) return;
-    
-    if (isValidating) {
-        showToast('⏳ Please wait, validating images with AI...', 'info');
+
+    const remainingSlots = 300 - uploadedFiles.length;
+    if (files.length > remainingSlots) {
+        document.getElementById('uploadError').classList.add('show');
+        document.getElementById('errorMessage').textContent = remainingSlots > 0
+            ? `Please select ${remainingSlots} or fewer images. You can upload up to 300 images at once.`
+            : 'The maximum of 300 images has already been selected.';
+        document.getElementById('fileInput').value = '';
         return;
     }
     
     document.getElementById('uploadError').classList.remove('show');
     document.getElementById('uploadWarning').classList.remove('show');
-    
-    const validFiles = [];
+
+    // Coffee-leaf verification and disease analysis happen once, together, in
+    // the protected batch endpoint.  This avoids running the AI twice per leaf.
     const rejectedFiles = [];
-    const fileData = [];
-    
-    for (let file of files) {
+    const acceptedFiles = [];
+    for (const file of files) {
         if (file.size > 10 * 1024 * 1024) {
             rejectedFiles.push(`${file.name} (too large - max 10MB)`);
             continue;
@@ -3190,69 +3198,8 @@ async function handleMultipleFileUpload(event) {
             rejectedFiles.push(`${file.name} (not an image)`);
             continue;
         }
-        fileData.push(file);
+        acceptedFiles.push(file);
     }
-    
-    if (fileData.length === 0) {
-        showToast('❌ No valid image files to upload', 'error');
-        return;
-    }
-    
-    isValidating = true;
-    showToast(`🔍 Validating ${fileData.length} image(s) with AI model...`, 'info');
-    document.getElementById('uploadProgress').style.display = 'block';
-    const progressBar = document.getElementById('progressBar');
-    const progressText = document.getElementById('progressText');
-    
-    let processed = 0;
-    
-    for (let file of fileData) {
-        progressBar.style.width = `${((processed + 1) / fileData.length) * 100}%`;
-        progressText.textContent = `Validating ${processed + 1} of ${fileData.length} with AI...`;
-        
-        try {
-            const formData = new FormData();
-            formData.append('image', file);
-            
-            const response = await fetch('/validate_image', {
-                method: 'POST',
-                body: formData,
-                credentials: 'include'
-            });
-            
-            const result = await response.json();
-            
-            if (result.valid) {
-                const dataURL = await new Promise((resolve) => {
-                    const reader = new FileReader();
-                    reader.onload = (e) => resolve(e.target.result);
-                    reader.readAsDataURL(file);
-                });
-                
-                validFiles.push({
-                    file: file,
-                    dataURL: dataURL,
-                    disease_count: result.disease_count || 0,
-                    has_disease: result.has_disease || false
-                });
-            } else {
-                rejectedFiles.push(`${file.name} (${result.message || 'No disease detected'})`);
-            }
-        } catch (error) {
-            console.error('Validation error for', file.name, error);
-            rejectedFiles.push(`${file.name} (validation error)`);
-        }
-        
-        processed++;
-    }
-    
-    progressBar.style.width = '100%';
-    progressText.textContent = 'Validation complete!';
-    isValidating = false;
-    
-    setTimeout(() => {
-        document.getElementById('uploadProgress').style.display = 'none';
-    }, 1000);
     
     if (rejectedFiles.length > 0) {
         document.getElementById('warningMessage').innerHTML = 
@@ -3260,62 +3207,53 @@ async function handleMultipleFileUpload(event) {
         document.getElementById('uploadWarning').classList.add('show');
     }
     
-    if (validFiles.length === 0) {
-        showToast('❌ No valid coffee leaf images detected.', 'error');
+    if (acceptedFiles.length === 0) {
+        showToast('❌ No valid image files to upload.', 'error');
         document.getElementById('fileInput').value = '';
         return;
     }
-    
-    for (let vf of validFiles) {
-        uploadedFiles.push(vf.file);
-        uploadedImageData.push(vf.dataURL);
+    for (const file of acceptedFiles) {
+        uploadedFiles.push(file);
+        uploadedPreviewUrls.push(URL.createObjectURL(file));
     }
-    
+    renderUploadedPreviews();
+    showToast(`✅ ${acceptedFiles.length} image(s) ready for analysis.`, 'success');
+    document.getElementById('fileInput').value = '';
+}
+
+function renderUploadedPreviews() {
     const previewContainer = document.getElementById('previewContainer');
     previewContainer.innerHTML = '';
-    
-    validFiles.forEach((vf, index) => {
+    uploadedFiles.forEach((file, index) => {
         const div = document.createElement('div');
         div.className = 'preview-item';
+        const label = document.createElement('strong');
+        label.textContent = `Leaf ${index + 1}`;
         const img = document.createElement('img');
-        img.src = vf.dataURL;
-        img.dataset.index = uploadedFiles.length - validFiles.length + index;
-        img.dataset.data = vf.dataURL;
-        
+        img.src = uploadedPreviewUrls[index];
+        img.alt = `Leaf ${index + 1}`;
         const badge = document.createElement('span');
         badge.className = 'disease-badge';
-        // The preview is only an upload confirmation.  Do not show a count
-        // from this preliminary request because the final analysis is the
-        // single source of truth for displayed detections.
         badge.textContent = 'Ready to analyse';
-        
         const removeBtn = document.createElement('button');
         removeBtn.className = 'remove-btn';
         removeBtn.innerHTML = '×';
-        removeBtn.onclick = function(e) {
-            e.stopPropagation();
-            const idx = uploadedFiles.indexOf(vf.file);
-            if (idx > -1) {
-                uploadedFiles.splice(idx, 1);
-                uploadedImageData.splice(idx, 1);
-                handleMultipleFileUpload({ target: { files: [] } });
-            }
+        removeBtn.onclick = function(event) {
+            event.stopPropagation();
+            uploadedFiles.splice(index, 1);
+            URL.revokeObjectURL(uploadedPreviewUrls.splice(index, 1)[0]);
+            renderUploadedPreviews();
         };
-        div.appendChild(img);
-        div.appendChild(badge);
-        div.appendChild(removeBtn);
+        div.append(label, img, badge, removeBtn);
         previewContainer.appendChild(div);
     });
-    
-    document.getElementById('photoPreview').style.display = 'block';
-    showToast(`✅ ${validFiles.length} coffee leaf image(s) accepted!`, 'success');
-    playSound('success');
-    document.getElementById('fileInput').value = '';
+    document.getElementById('photoPreview').style.display = uploadedFiles.length ? 'block' : 'none';
 }
 
 function removeAllPhotos() {
     uploadedFiles = [];
-    uploadedImageData = [];
+    uploadedPreviewUrls.forEach(url => URL.revokeObjectURL(url));
+    uploadedPreviewUrls = [];
     document.getElementById('previewContainer').innerHTML = '';
     document.getElementById('photoPreview').style.display = 'none';
     document.getElementById('predictionResult').style.display = 'none';
@@ -3326,7 +3264,7 @@ function removeAllPhotos() {
 }
 
 async function analyzeImages() {
-    if (uploadedImageData.length === 0) {
+    if (uploadedFiles.length === 0) {
         showToast('❌ No images to analyze. Please upload valid leaf images first.', 'error');
         return;
     }
@@ -3335,60 +3273,42 @@ async function analyzeImages() {
     const progressBar = document.getElementById('progressBar');
     const progressText = document.getElementById('progressText');
     
-    const imageDataList = [...uploadedImageData];
-    const results = [];
-    let processed = 0;
-    const total = imageDataList.length;
-    
-    for (let i = 0; i < imageDataList.length; i++) {
-        const imgData = imageDataList[i];
-        progressBar.style.width = `${((i + 1) / total) * 100}%`;
-        progressText.textContent = `Processing ${i + 1} of ${total}...`;
-        
-        try {
-            const blob = dataURLtoBlob(imgData);
-            const formData = new FormData();
-            formData.append('image', blob, 'leaf.jpg');
-            
-            const response = await fetch('/validate_and_predict', {
-                method: 'POST',
-                body: formData,
-                credentials: 'include'
-            });
-            
-            const result = await response.json();
-            
-            if (!response.ok || !result.success) {
-                throw new Error(result.error || result.message || `Analysis request failed (${response.status})`);
-            }
+    const formData = new FormData();
+    uploadedFiles.forEach(file => formData.append('images', file, file.name));
+    progressBar.style.width = '10%';
+    progressText.textContent = `Analysing ${uploadedFiles.length} coffee leaf image(s)...`;
 
-            results.push({
-                result: result.result_key || 'no_disease',
-                confidence: result.confidence || 0,
-                failed: false,
-                disease_count: result.disease_count || 0,
-                class_counts: result.class_counts || {},
-                severity: result.severity || 'healthy',
-                recommendation: result.recommendation || '',
-                secondary_screening: result.secondary_screening || null,
-                review_required: Boolean(result.review_required),
-                confirmed_detections: Number(result.confirmed_detections || 0)
-            });
-        } catch (error) {
-            console.error('Error analyzing image:', error);
-            results.push({
-                result: 'no_disease',
-                confidence: 0,
-                failed: true,
-                disease_count: 0,
-                class_counts: {},
-                severity: 'healthy',
-                recommendation: error.message || 'Error during analysis.'
-            });
+    let results;
+    try {
+        const response = await fetch('/predict_multiple', {
+            method: 'POST', body: formData, credentials: 'include'
+        });
+        const payload = await response.json();
+        if (!response.ok) {
+            throw new Error(payload.error || `Analysis request failed (${response.status})`);
         }
-        processed++;
+        results = (payload.results || []).map((result, index) => ({
+            leafNumber: index + 1,
+            result: result.result_key || 'no_disease',
+            confidence: result.confidence || 0,
+            failed: !result.success,
+            disease_count: result.disease_count || 0,
+            class_counts: result.class_counts || {},
+            severity: result.severity || 'healthy',
+            recommendation: result.recommendation || result.error || 'Could not be analysed.',
+            secondary_screening: result.secondary_screening || null,
+            review_required: Boolean(result.review_required),
+            confirmed_detections: Number(result.confirmed_detections || 0)
+        }));
+    } catch (error) {
+        console.error('Batch analysis error:', error);
+        results = uploadedFiles.map((file, index) => ({
+            leafNumber: index + 1, result: 'no_disease', confidence: 0,
+            failed: true, disease_count: 0, class_counts: {}, severity: 'healthy',
+            recommendation: error.message || 'Error during analysis.'
+        }));
     }
-    
+
     progressBar.style.width = '100%';
     progressText.textContent = 'Complete!';
     
@@ -3401,7 +3321,17 @@ async function analyzeImages() {
 function displayAnalysisResults(results) {
     const validResults = results.filter(r => !r.failed);
     const failedCount = results.length - validResults.length;
-    
+    const perLeafResults = results.map((result, index) => {
+        const leafNumber = result.leafNumber || index + 1;
+        const title = result.failed ? 'Analysis failed' : (result.result || 'no_disease').replaceAll('_', ' ');
+        const confidence = result.failed ? '' : ` | Confidence: ${Number(result.confidence || 0).toFixed(1)}%`;
+        const detail = result.failed
+            ? `<div style="color:#cc5555; margin-top:4px;">${result.recommendation || 'Could not be analysed.'}</div>`
+            : `<div style="margin-top:4px;">${result.recommendation || 'No additional recommendation.'}</div>`;
+        return `<div style="border:1px solid #eadfd5; border-radius:6px; padding:12px; margin-top:8px; background:#fffaf5;">
+            <strong>Leaf ${leafNumber}</strong>: ${title}${confidence}${detail}
+        </div>`;
+    }).join('');
     if (validResults.length === 0) {
         const errorMessage = results
             .filter(r => r.failed && r.recommendation)
@@ -3491,6 +3421,7 @@ function displayAnalysisResults(results) {
     severityElement.classList.add(severityClass);
     
     let summaryHTML = `
+        <div style="margin-bottom:12px;"><strong>Results by leaf</strong>${perLeafResults}</div>
         <div style="display:flex; flex-wrap:wrap; gap:16px; margin-top:8px; padding:10px 0;">
             <span><i class="fas fa-circle" style="color:#8B6914;"></i> Brown Eye Spot: <strong>${brownEye}</strong></span>
             <span><i class="fas fa-bug" style="color:#2E7D32;"></i> Leaf Miner: <strong>${leafMiner}</strong></span>
@@ -3561,7 +3492,7 @@ function dataURLtoBlob(dataURL) {
 function updateBulkActions() {
     const checks = document.querySelectorAll('.prediction-checkbox:checked');
     selectedPredictions = new Set();
-    checks.forEach(c => selectedPredictions.add(parseInt(c.dataset.index)));
+    checks.forEach(c => selectedPredictions.add(c.dataset.id || c.dataset.index));
     const count = selectedPredictions.size;
     document.getElementById('selectedCount').textContent = `${count} selected`;
     document.getElementById('bulkActions').className = `bulk-actions${count > 0 ? ' show' : ''}`;
@@ -3585,11 +3516,14 @@ function deleteSelectedPredictions() {
     if (count === 0) return;
     if (!confirm(`Delete ${count} selected detection(s)?`)) return;
     
-    fetch('/clear_dashboard', {
+    const ids = Array.from(selectedPredictions).filter(id => /^\d+$/.test(String(id)));
+    fetch('/delete_predictions', {
         method: 'POST',
-        credentials: 'include'
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ids })
     }).then(() => {
-        predictions = [];
+        predictions = predictions.filter(p => !selectedPredictions.has(String(p.id)));
         localStorage.setItem('coffeeGuardPredictions', JSON.stringify(predictions));
         clearSelection();
         loadHistory();
@@ -3598,10 +3532,9 @@ function deleteSelectedPredictions() {
         showToast(`${count} detection(s) deleted`);
         fetchPredictionsFromServer();
     }).catch(() => {
-        const sorted = Array.from(selectedPredictions).sort((a, b) => b - a);
-        sorted.forEach(idx => {
-            if (idx < predictions.length) predictions.splice(idx, 1);
-        });
+        predictions = predictions.filter((p, index) =>
+            !selectedPredictions.has(String(p.id)) && !selectedPredictions.has(String(index))
+        );
         localStorage.setItem('coffeeGuardPredictions', JSON.stringify(predictions));
         clearSelection();
         loadHistory();
@@ -3626,7 +3559,7 @@ function clearAllGallery() {
             showToast('Gallery cleared');
             fetchPredictionsFromServer();
         }).catch(() => {
-            predictions = predictions.filter(p => p.failed || !p.image_data);
+            predictions = predictions.filter(p => p.failed || !p.image_url);
             localStorage.setItem('coffeeGuardPredictions', JSON.stringify(predictions));
             renderGallery();
             loadHistory();
@@ -3959,10 +3892,10 @@ function generateReport() {
               showToast('❌ Failed to generate report', 'error');
           }
       }).catch(() => {
-          const brownEye = predictions.filter(p => p.result === 'brown_eye_spot' && !p.failed).length;
-          const leafMiner = predictions.filter(p => p.result === 'leaf_miner' && !p.failed).length;
-          const leafRust = predictions.filter(p => p.result === 'leaf_rust' && !p.failed).length;
-          const noDisease = predictions.filter(p => p.result === 'no_disease' && !p.failed).length;
+          const brownEye = predictions.filter(p => predictionKey(p) === 'brown_eye_spot' && !p.failed).length;
+          const leafMiner = predictions.filter(p => predictionKey(p) === 'leaf_miner' && !p.failed).length;
+          const leafRust = predictions.filter(p => predictionKey(p) === 'leaf_rust' && !p.failed).length;
+          const noDisease = predictions.filter(p => predictionKey(p) === 'no_disease' && !p.failed).length;
           const total = predictions.filter(p => !p.failed).length;
           const totalDiseases = predictions.reduce((sum, p) => sum + (p.disease_count || 0), 0);
           const report = {
@@ -4037,10 +3970,10 @@ function exportCSV() {
     const headers = ['Date', 'Disease', 'Confidence', 'Disease Count', 'Severity', 'Failed'];
     const rows = predictions.map(p => [
         new Date(p.date).toLocaleString(),
-        p.result === 'no_disease' ? 'No Disease' :
-        p.result === 'brown_eye_spot' ? 'Brown Eye Spot' :
-        p.result === 'leaf_miner' ? 'Leaf Miner' :
-        p.result === 'leaf_rust' ? 'Leaf Rust' : p.result,
+        predictionKey(p) === 'no_disease' ? 'No Disease' :
+        predictionKey(p) === 'brown_eye_spot' ? 'Brown Eye Spot' :
+        predictionKey(p) === 'leaf_miner' ? 'Leaf Miner' :
+        predictionKey(p) === 'leaf_rust' ? 'Leaf Rust' : p.result,
         p.failed ? 'N/A' : Math.round(p.confidence || 0),
         p.disease_count || 0,
         p.severity || 'healthy',

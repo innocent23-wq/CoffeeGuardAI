@@ -1,4 +1,5 @@
 import os
+import sys
 
 # Keep optional Hugging Face model files inside this project.  The app uses the
 # cached copy only, so a slow or unavailable internet connection never delays a
@@ -13,6 +14,8 @@ import base64
 import hashlib
 import random
 import string
+import uuid
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import logging
 import io
 import csv
@@ -32,6 +35,14 @@ import cv2
 import onnxruntime as ort
 from PIL import Image, ImageEnhance, ImageFilter
 from dotenv import load_dotenv
+
+# Windows consoles often default to cp1252, which cannot print the status
+# symbols below. Configure UTF-8 so local startup does not fail before Flask
+# can serve a request.
+if hasattr(sys.stdout, 'reconfigure'):
+    sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+if hasattr(sys.stderr, 'reconfigure'):
+    sys.stderr.reconfigure(encoding='utf-8', errors='replace')
 
 try:
     import torch
@@ -105,6 +116,14 @@ os.makedirs(app.config['REFERENCE_FOLDER'], exist_ok=True)
 os.makedirs(TEMPLATE_DIR, exist_ok=True)
 
 ALLOWED_IMAGE_EXTENSIONS = {'png', 'jpg', 'jpeg', 'bmp', 'tif', 'tiff', 'webp'}
+MAX_BATCH_IMAGES = 300
+MAX_IMAGE_BYTES = 10 * 1024 * 1024
+# A pixel cap prevents a tiny, highly-compressed image from causing slow,
+# memory-heavy OpenCV processing after it has been decoded.
+MAX_IMAGE_PIXELS = 25_000_000
+# A small fixed pool speeds up large uploads without exhausting memory on a
+# modest deployment instance. Results are still returned in leaf order.
+MAX_BATCH_WORKERS = min(4, max(1, os.cpu_count() or 1))
 
 # =========================
 # DISEASE REFERENCE DATASET (Updated from Cherry to Disease)
@@ -119,21 +138,21 @@ class DiseaseReference:
                 'rgb_avg': [130, 75, 35],
                 'description': 'Brown leaf spots that enlarge and develop reddish-brown margins; repeated lesions may make leaves appear burnt.',
                 'emoji': '🍂',
-                'treatment': 'Monitor affected leaves, improve field sanitation, and consider an appropriate fungicide if the disease is spreading.'
+                'treatment': 'Remove badly affected leaves, clear fallen leaves from around the plant, and check nearby plants for the same spots.'
             },
             'leaf_miner': {
                 'hsv_ranges': [(10, 40, 40), (35, 255, 220)],  # Irregular brown/orange mining damage
                 'rgb_avg': [145, 95, 50],
                 'description': 'Internal leaf mines producing irregular brown or necrotic areas caused by larvae feeding between the leaf surfaces.',
                 'emoji': '🐛',
-                'treatment': 'Monitor infestation and use integrated pest management, including sanitation and biological controls where available.'
+                'treatment': 'Remove mined leaves, check nearby plants for fresh tunnels, and follow local integrated pest management advice before using pesticide.'
             },
             'leaf_rust': {
                 'hsv_ranges': [(5, 80, 100), (25, 255, 255)],  # Pale yellow to orange rust spots
                 'rgb_avg': [210, 110, 40],
                 'description': 'Pale yellow spots that develop orange/rust-coloured pustules, often on the lower leaf surface.',
                 'emoji': '🔥',
-                'treatment': 'Apply a recommended fungicide and remove heavily infected leaves where appropriate.'
+                'treatment': 'Check the underside of the leaves, remove heavily infected leaves, and ask an extension officer which approved fungicide to use locally.'
             }
         }
         self.reference_images = {}
@@ -485,7 +504,9 @@ INFERENCE_IMAGE_SIZE = 640
 LOW_RES_INFERENCE_IMAGE_SIZE = 640
 LOW_RES_SOURCE_DIMENSION = 0
 TILE_OVERLAP = 0.20
-TILE_MIN_DIMENSION = 1400
+# Four ONNX passes for a typical phone photo made requests noticeably slow.
+# Keep one 640px inference for normal images and tile only very large scans.
+TILE_MIN_DIMENSION = 4096
 REFERENCE_DISTANCE_THRESHOLD = 85
 # Healthy leaves can trigger a single weak noise box from the model. Raise the
 # minimum confidence floor so only genuinely visible lesions survive validation.
@@ -869,6 +890,20 @@ def allowed_image(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_IMAGE_EXTENSIONS
 
 
+def upload_is_within_size_limit(file_storage):
+    """Check an upload size without consuming the request stream."""
+    try:
+        stream = file_storage.stream
+        stream.seek(0, os.SEEK_END)
+        size = stream.tell()
+        stream.seek(0)
+        return size <= MAX_IMAGE_BYTES
+    except (AttributeError, OSError):
+        # Werkzeug normally provides a seekable temporary stream. Reject an
+        # unreadable stream instead of accepting an unbounded upload.
+        return False
+
+
 def is_coffee_leaf_image(image):
     """Use a simple green leaf heuristic to reject non-leaf uploads."""
     if isinstance(image, Image.Image):
@@ -882,6 +917,9 @@ def is_coffee_leaf_image(image):
         return False
 
     if img is None or img.size == 0:
+        return False
+
+    if img.shape[0] * img.shape[1] > MAX_IMAGE_PIXELS:
         return False
 
     hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
@@ -924,7 +962,7 @@ def is_coffee_leaf_image(image):
 # =========================
 # DISEASE DETECTION FUNCTION - UPDATED
 # =========================
-def detect_diseases(image, conf=DETECTION_CONF):
+def detect_diseases(image, conf=DETECTION_CONF, validate_leaf=True):
     """Run best.pt on the original upload and return one count per model box."""
     # Keep this field present in every response, including early failures.
     # Callers use it to distinguish an optional whole-leaf screening alert from
@@ -984,7 +1022,7 @@ def detect_diseases(image, conf=DETECTION_CONF):
                 'recommendation': 'No diseases detected. Keep monitoring your coffee plants regularly.'
             }
 
-        if not is_coffee_leaf_image(source_image):
+        if validate_leaf and not is_coffee_leaf_image(source_image):
             return {
                 'success': False,
                 'error': 'Non-leaf image detected',
@@ -1191,16 +1229,16 @@ def detect_diseases(image, conf=DETECTION_CONF):
             )
         elif total_detections == 0:
             severity = 'healthy'
-            recommendation = 'The model found no matching disease or pest pattern. This is not a guarantee that the leaf is healthy; inspect visible symptoms or consult an agronomist.'
+            recommendation = 'No clear disease signs were found. Check the underside of the leaf and continue routine checks on this plant and nearby plants.'
         elif total_detections < 3:
             severity = 'low'
-            recommendation = '🟢 Low issue presence detected. Monitor closely and consider preventive measures.'
+            recommendation = 'A small number of affected areas were found. Mark the plant, remove badly affected leaves, and check nearby plants.'
         elif total_detections < 8:
             severity = 'moderate'
-            recommendation = '🟡 Moderate issue presence. Take action to control the spread.'
+            recommendation = 'Several affected areas were found. Remove badly affected leaves, clean tools after use, and inspect nearby plants.'
         else:
             severity = 'severe'
-            recommendation = '🔴 High issue presence detected. Immediate action required to protect your crop.'
+            recommendation = 'Many affected areas were found. Separate this plant if possible, remove badly infected leaves, and contact an extension officer promptly.'
         
         # Get specific recommendation for the primary disease
         if primary_disease != 'no_disease' and not review_required:
@@ -1899,6 +1937,8 @@ def predict():
             "success": False,
             "error": "Unsupported image format. Please upload a JPG, PNG, BMP, TIFF, or WEBP file."
         }), 400
+    if not upload_is_within_size_limit(file):
+        return jsonify({"success": False, "error": "Image is too large. Maximum size is 10 MB."}), 400
 
     filename = f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_{secure_filename(file.filename)}"
     filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
@@ -1912,7 +1952,7 @@ def predict():
                 "error": "Please upload a coffee leaf image only. Non-leaf images are not allowed."
             }), 400
         
-        detection_result = detect_diseases(image)
+        detection_result = detect_diseases(image, validate_leaf=False)
         # A missing/broken production model must never be presented to a farmer
         # as a healthy-leaf result.  Returning 503 lets the dashboard show the
         # real deployment problem instead of silently recording "No Disease".
@@ -2042,6 +2082,12 @@ def validate_image():
             }), 400
 
         img_bytes = file.read()
+        if len(img_bytes) > MAX_IMAGE_BYTES:
+            return jsonify({
+                "valid": False,
+                "error": "Image is too large",
+                "message": "Please upload an image no larger than 10 MB."
+            }), 400
         nparr = np.frombuffer(img_bytes, np.uint8)
         img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
         
@@ -2059,7 +2105,7 @@ def validate_image():
                 "message": "Please upload a coffee leaf image only."
             }), 400
         
-        detection_result = detect_diseases(img)
+        detection_result = detect_diseases(img, validate_leaf=False)
         secondary_screening = detection_result.get('secondary_screening')
         
         if detection_result['success'] and (detection_result['has_disease'] or secondary_screening):
@@ -2177,6 +2223,8 @@ def validate_and_predict():
             "success": False,
             "error": "Unsupported image format. Please upload a JPG, PNG, BMP, TIFF, or WEBP file."
         }), 400
+    if not upload_is_within_size_limit(file):
+        return jsonify({"success": False, "error": "Image is too large. Maximum size is 10 MB."}), 400
 
     filename = f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_{secure_filename(file.filename)}"
     filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
@@ -2190,7 +2238,7 @@ def validate_and_predict():
                 "error": "Please upload a coffee leaf image only. Non-leaf images are not allowed."
             }), 400
         
-        detection_result = detect_diseases(image)
+        detection_result = detect_diseases(image, validate_leaf=False)
         # Do not convert a server/model failure into a false "No Disease"
         # result.  The client already displays non-2xx responses as errors.
         if not detection_result.get('success'):
@@ -2291,8 +2339,60 @@ def validate_and_predict():
         traceback.print_exc()
         return jsonify({"success": False, "error": str(e)}), 500
 
+def _analyse_batch_image(filepath, filename):
+    """CPU-bound analysis for one saved upload; safe to run in a worker."""
+    try:
+        image = Image.open(filepath).convert('RGB')
+        if not is_coffee_leaf_image(image):
+            return {"success": False, "filename": filename,
+                    "error": "Please upload a coffee leaf image only."}
+
+        detection_result = detect_diseases(image, validate_leaf=False)
+        if not detection_result.get('success'):
+            return {"success": False, "filename": filename,
+                    "error": "Disease model is unavailable. Please try again shortly."}
+
+        secondary_screening = detection_result.get('secondary_screening')
+        if detection_result['has_disease']:
+            result = detection_result['primary_disease']
+            confidence = detection_result['avg_confidence']
+            total_detections = detection_result['total_detections']
+            class_counts = detection_result['class_counts']
+            severity = detection_result.get('severity', 'healthy')
+            recommendation = detection_result.get('recommendation', '')
+        elif secondary_screening:
+            result = 'screening_required'
+            confidence = secondary_screening['confidence']
+            total_detections = 0
+            class_counts = {"leaf_rust": 0, "brown_eye_spot": 0, "no_disease": 0, "leaf_miner": 0}
+            severity = detection_result.get('severity', 'moderate')
+            recommendation = detection_result.get('recommendation', '')
+        else:
+            result = 'no_disease'
+            confidence = 0
+            total_detections = 0
+            class_counts = {"leaf_rust": 0, "brown_eye_spot": 0, "no_disease": 0, "leaf_miner": 0}
+            severity = 'healthy'
+            recommendation = 'No matching disease pattern was detected by the model.'
+
+        return {
+            "success": True, "result": DISEASE_LABELS.get(result, result),
+            "result_key": result, "confidence": round(max(0, min(100, confidence)), 2),
+            "filename": filename, "disease_count": total_detections,
+            "class_counts": class_counts, "severity": severity,
+            "recommendation": recommendation, "secondary_screening": secondary_screening,
+            "review_required": detection_result.get('review_required', False),
+            "confirmed_detections": detection_result.get('confirmed_detections', 0),
+            "detection_type": 'leaf',
+        }
+    except Exception as error:
+        logging.exception('Batch prediction error for %s', filename)
+        return {"success": False, "filename": filename, "error": str(error)}
+
+
 @app.route('/predict_multiple', methods=['POST'])
 def predict_multiple():
+    """Analyse one batch while preserving one result for every selected leaf."""
     if 'email' not in session:
         return jsonify({"error": "unauthorized"}), 401
     if 'images' not in request.files:
@@ -2300,26 +2400,110 @@ def predict_multiple():
     files = request.files.getlist('images')
     if not files or files[0].filename == '':
         return jsonify({"error": "No files selected"}), 400
+    if len(files) > MAX_BATCH_IMAGES:
+        return jsonify({
+            "error": f"You can upload a maximum of {MAX_BATCH_IMAGES} coffee leaf images at once.",
+            "max_images": MAX_BATCH_IMAGES
+        }), 400
 
     results = []
     rejected = []
 
+    # Save uploads first, then run bounded concurrent inference. Database writes
+    # remain below in the request thread to avoid SQLite write contention.
+    ordered_results = [None] * len(files)
+    work_items = []
+    for index, file in enumerate(files):
+        original_name = secure_filename(file.filename) or 'coffee_leaf.jpg'
+        if not allowed_image(file.filename):
+            ordered_results[index] = {"success": False, "filename": original_name,
+                                      "error": "Unsupported image format."}
+            continue
+        file.stream.seek(0, os.SEEK_END)
+        file_size = file.stream.tell()
+        file.stream.seek(0)
+        if file_size > MAX_IMAGE_BYTES:
+            ordered_results[index] = {"success": False, "filename": original_name,
+                                      "error": "Image is too large. Maximum size is 10 MB."}
+            continue
+        filename = f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex}_{original_name}"
+        filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+        file.save(filepath)
+        work_items.append((index, filepath, filename))
+
+    with ThreadPoolExecutor(max_workers=MAX_BATCH_WORKERS) as executor:
+        futures = {
+            executor.submit(_analyse_batch_image, filepath, filename): index
+            for index, filepath, filename in work_items
+        }
+        for future in as_completed(futures):
+            index = futures[future]
+            try:
+                ordered_results[index] = future.result()
+            except Exception as error:
+                logging.exception('Unexpected batch worker error')
+                ordered_results[index] = {"success": False, "filename": files[index].filename,
+                                          "error": str(error)}
+
+    for result in ordered_results:
+        if not result['success']:
+            rejected.append(result['filename'])
+            results.append(result)
+            continue
+        confidence_score = round(result['confidence'] / 100, 2)
+        with get_db() as conn:
+            conn.execute("""
+                INSERT INTO predictions (email, filename, result, confidence, timestamp, image_data,
+                                         disease_count, class_counts, total_detections, severity, recommendation)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (session['email'], result['filename'], result['result_key'], confidence_score,
+                  datetime.now().isoformat(), None, result['disease_count'],
+                  json.dumps(result['class_counts']), result['disease_count'], result['severity'],
+                  result['recommendation']))
+        results.append(result)
+
+    return jsonify({
+        "results": results, "rejected": rejected, "rejected_count": len(rejected),
+        "model_used": MODEL_AVAILABLE, "workers": MAX_BATCH_WORKERS
+    })
+
     for file in files:
         if file.filename == '' or not allowed_image(file.filename):
-            rejected.append(file.filename or 'unnamed')
+            original_name = file.filename or 'unnamed'
+            results.append({"success": False, "filename": original_name,
+                            "error": "Unsupported image format."})
+            rejected.append(original_name)
             continue
 
-        filename = f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_{secure_filename(file.filename)}"
+        original_name = secure_filename(file.filename) or 'coffee_leaf.jpg'
+        file.stream.seek(0, os.SEEK_END)
+        file_size = file.stream.tell()
+        file.stream.seek(0)
+        if file_size > MAX_IMAGE_BYTES:
+            results.append({"success": False, "filename": original_name,
+                            "error": "Image is too large. Maximum size is 10 MB."})
+            rejected.append(original_name)
+            continue
+
+        # UUIDs prevent same-second uploads from overwriting another leaf.
+        filename = f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex}_{original_name}"
         filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
         file.save(filepath)
 
         try:
             image = Image.open(filepath).convert('RGB')
             if not is_coffee_leaf_image(image):
+                results.append({"success": False, "filename": filename,
+                                "error": "Please upload a coffee leaf image only."})
                 rejected.append(filename)
                 continue
 
             detection_result = detect_diseases(image)
+            if not detection_result.get('success'):
+                results.append({"success": False, "filename": filename,
+                                "error": "Disease model is unavailable. Please try again shortly."})
+                rejected.append(filename)
+                continue
             secondary_screening = detection_result.get('secondary_screening')
 
             if detection_result['success'] and detection_result['has_disease']:
@@ -2347,21 +2531,19 @@ def predict_multiple():
             confidence = max(0, min(100, confidence))
             confidence_score = round(confidence / 100, 2)
 
-            with open(filepath, 'rb') as f:
-                image_data = base64.b64encode(f.read()).decode('utf-8')
-
             with get_db() as conn:
                 c = conn.cursor()
                 c.execute("""
                     INSERT INTO predictions (email, filename, result, confidence, timestamp, image_data,
-                                             class_counts, total_detections, severity, recommendation)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """, (session['email'], filename, result, confidence_score, datetime.now().isoformat(), image_data,
-                      json.dumps(class_counts), total_detections, severity, recommendation))
+                                             disease_count, class_counts, total_detections, severity, recommendation)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, (session['email'], filename, result, confidence_score, datetime.now().isoformat(), None,
+                      total_detections, json.dumps(class_counts), total_detections, severity, recommendation))
 
             results.append({
                 "success": True,
                 "result": DISEASE_LABELS.get(result, result),
+                "result_key": result,
                 "confidence": round(confidence, 2),
                 "filename": filename,
                 "disease_count": total_detections,
@@ -2387,6 +2569,29 @@ def predict_multiple():
 # =========================
 # HISTORY & DATA ROUTES - UPDATED
 # =========================
+@app.route('/delete_predictions', methods=['POST'])
+def delete_predictions():
+    """Delete only the prediction records the user selected."""
+    if 'email' not in session:
+        return jsonify({"error": "unauthorized"}), 401
+
+    ids = (request.get_json(silent=True) or {}).get('ids', [])
+    if not isinstance(ids, list):
+        return jsonify({"error": "ids must be a list"}), 400
+    valid_ids = [int(value) for value in ids if str(value).isdigit()]
+    if not valid_ids:
+        return jsonify({"deleted": 0})
+
+    placeholders = ','.join('?' for _ in valid_ids)
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            f"DELETE FROM predictions WHERE email=? AND id IN ({placeholders})",
+            [session['email'], *valid_ids]
+        )
+        deleted = cursor.rowcount
+    return jsonify({"deleted": deleted})
+
 @app.route('/history')
 def get_history():
     if 'email' not in session:
@@ -2394,6 +2599,8 @@ def get_history():
     try:
         with get_db() as conn:
             c = conn.cursor()
+            requested_limit = request.args.get('limit', default=300, type=int)
+            limit = max(1, min(requested_limit, MAX_BATCH_IMAGES))
             c.execute("""
                 SELECT id, filename, result, confidence, timestamp, image_data, 
                        disease_count, class_counts, total_detections, detection_type,
@@ -2401,8 +2608,8 @@ def get_history():
                 FROM predictions
                 WHERE email=?
                 ORDER BY id DESC
-                LIMIT 50
-            """, (session['email'],))
+                LIMIT ?
+            """, (session['email'], limit))
             rows = c.fetchall()
         history = []
         for row in rows:
@@ -2414,7 +2621,9 @@ def get_history():
                 "result_key": result_key,
                 "confidence": round(row[3] * 100, 2) if row[3] else 0,
                 "timestamp": row[4] or datetime.now().isoformat(),
-                "image_data": row[5] if len(row) > 5 else None,
+                # Avoid embedding as much as 3 GB of base64 image data in a
+                # 300-item history response; the upload is already static.
+                "image_url": f"/static/uploads/{row[1]}" if row[1] else None,
                 "disease_count": row[6] if len(row) > 6 else 0,
                 "class_counts": json.loads(row[7]) if len(row) > 7 and row[7] else {},
                 "total_detections": row[8] if len(row) > 8 else 0,
