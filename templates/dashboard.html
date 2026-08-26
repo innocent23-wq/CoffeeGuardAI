@@ -2843,6 +2843,26 @@ function predictionKey(pred) {
     return pred.result_key || pred.result || 'no_disease';
 }
 
+function detectionCounts(records) {
+    const counts = { brown_eye_spot: 0, leaf_miner: 0, leaf_rust: 0, no_disease: 0 };
+    records.filter(p => !p.failed).forEach(prediction => {
+        const savedCounts = prediction.class_counts || {};
+        const findingCount = Object.entries(savedCounts)
+            .filter(([key]) => key in counts)
+            .reduce((sum, [, value]) => sum + Number(value || 0), 0);
+
+        if (findingCount > 0) {
+            Object.keys(counts).forEach(key => {
+                counts[key] += Number(savedCounts[key] || 0);
+            });
+        } else if (predictionKey(prediction) === 'no_disease') {
+            // "No Disease" is a leaf-level outcome, not a lesion box.
+            counts.no_disease += 1;
+        }
+    });
+    return counts;
+}
+
 function syncEstimatorWithPredictions(counts) {
     if (!document.getElementById('estBrownEye')) return;
     document.getElementById('estBrownEye').value = counts.brownEye;
@@ -2852,12 +2872,12 @@ function syncEstimatorWithPredictions(counts) {
 }
 
 function updateDashboard() {
-    // Update disease counts using result keys to keep labels and keys consistent
-    const brownEye = predictions.filter(p => predictionKey(p) === 'brown_eye_spot' && !p.failed).length;
-    const leafMiner = predictions.filter(p => predictionKey(p) === 'leaf_miner' && !p.failed).length;
-    const leafRust = predictions.filter(p => predictionKey(p) === 'leaf_rust' && !p.failed).length;
-    const noDisease = predictions.filter(p => predictionKey(p) === 'no_disease' && !p.failed).length;
-    const total = predictions.filter(p => !p.failed).length;
+    // Use the actual per-leaf findings saved by the detector, not one count
+    // per uploaded image. This keeps cards and graphs faithful to the result.
+    const counts = detectionCounts(predictions);
+    const { brown_eye_spot: brownEye, leaf_miner: leafMiner,
+        leaf_rust: leafRust, no_disease: noDisease } = counts;
+    const total = brownEye + leafMiner + leafRust + noDisease;
     
     document.getElementById('brownEyeCount').textContent = brownEye;
     document.getElementById('leafMinerCount').textContent = leafMiner;
@@ -2891,10 +2911,7 @@ function updateCharts() {
 
 function updateBarChart() {
     const ctx = document.getElementById('advancedBarChart').getContext('2d');
-    const brownEye = predictions.filter(p => predictionKey(p) === 'brown_eye_spot' && !p.failed).length;
-    const leafMiner = predictions.filter(p => predictionKey(p) === 'leaf_miner' && !p.failed).length;
-    const leafRust = predictions.filter(p => predictionKey(p) === 'leaf_rust' && !p.failed).length;
-    const noDisease = predictions.filter(p => predictionKey(p) === 'no_disease' && !p.failed).length;
+    const counts = detectionCounts(predictions);
     
     if (barChart) barChart.destroy();
     barChart = new Chart(ctx, {
@@ -2902,8 +2919,8 @@ function updateBarChart() {
         data: {
             labels: ['Brown Eye Spot', 'Leaf Miner', 'Leaf Rust', 'No Disease'],
             datasets: [{
-                label: 'Disease Detections',
-                data: [brownEye, leafMiner, leafRust, noDisease],
+                label: 'Detected findings',
+                data: [counts.brown_eye_spot, counts.leaf_miner, counts.leaf_rust, counts.no_disease],
                 backgroundColor: ['#8B6914', '#2E7D32', '#C62828', '#2D7A4A'],
                 borderRadius: 6,
             }]
@@ -2911,8 +2928,10 @@ function updateBarChart() {
         options: {
             responsive: true,
             maintainAspectRatio: false,
-            plugins: { legend: { display: false } },
-            scales: { y: { beginAtZero: true, ticks: { stepSize: 1 } } }
+            plugins: { legend: { display: false }, tooltip: { callbacks: {
+                label: context => `${context.label}: ${context.parsed.y} finding(s)`
+            } } },
+            scales: { y: { beginAtZero: true, title: { display: true, text: 'Detected findings' } } }
         }
     });
 }
@@ -2926,14 +2945,16 @@ function updatePieChart() {
         const monthMap = { 'jan': 0, 'feb': 1, 'mar': 2, 'apr': 3, 'may': 4, 'jun': 5, 'jul': 6, 'aug': 7, 'sep': 8, 'oct': 9, 'nov': 10, 'dec': 11 };
         const targetMonth = monthMap[filter];
         if (targetMonth !== undefined) {
-            filtered = filtered.filter(p => new Date(p.date).getMonth() === targetMonth);
+            filtered = filtered.filter(p => {
+                const month = new Intl.DateTimeFormat('en-US', {
+                    timeZone: 'Africa/Kampala', month: 'numeric'
+                }).format(new Date(p.date));
+                return Number(month) - 1 === targetMonth;
+            });
         }
     }
     
-    const brownEye = filtered.filter(p => predictionKey(p) === 'brown_eye_spot').length;
-    const leafMiner = filtered.filter(p => predictionKey(p) === 'leaf_miner').length;
-    const leafRust = filtered.filter(p => predictionKey(p) === 'leaf_rust').length;
-    const noDisease = filtered.filter(p => predictionKey(p) === 'no_disease').length;
+    const counts = detectionCounts(filtered);
     
     if (pieChart) pieChart.destroy();
     pieChart = new Chart(ctx, {
@@ -2941,7 +2962,7 @@ function updatePieChart() {
         data: {
             labels: ['Brown Eye Spot', 'Leaf Miner', 'Leaf Rust', 'No Disease'],
             datasets: [{
-                data: [brownEye, leafMiner, leafRust, noDisease],
+                data: [counts.brown_eye_spot, counts.leaf_miner, counts.leaf_rust, counts.no_disease],
                 backgroundColor: ['#8B6914', '#2E7D32', '#C62828', '#2D7A4A'],
                 borderColor: 'white',
                 borderWidth: 2,
@@ -2950,7 +2971,10 @@ function updatePieChart() {
         options: {
             responsive: true,
             maintainAspectRatio: false,
-            plugins: { legend: { position: 'bottom', labels: { font: { size: 10 } } } }
+            plugins: {
+                legend: { position: 'bottom', labels: { font: { size: 10 } } },
+                tooltip: { callbacks: { label: context => `${context.label}: ${context.parsed} finding(s)` } }
+            }
         }
     });
 }
