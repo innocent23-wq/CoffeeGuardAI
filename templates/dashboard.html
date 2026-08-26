@@ -3283,9 +3283,21 @@ async function analyzeImages() {
         const response = await fetch('/predict_multiple', {
             method: 'POST', body: formData, credentials: 'include'
         });
-        const payload = await response.json();
+        // A platform restart or timeout can return an empty HTML/body instead
+        // of JSON. Read it once and report a useful error for each leaf rather
+        // than showing the browser's cryptic "Unexpected end of JSON" message.
+        const responseText = await response.text();
+        let payload;
+        try {
+            payload = responseText ? JSON.parse(responseText) : {};
+        } catch (_) {
+            throw new Error(`The analysis server returned an invalid response (HTTP ${response.status}). Please try the leaves again one at a time.`);
+        }
         if (!response.ok) {
-            throw new Error(payload.error || `Analysis request failed (${response.status})`);
+            throw new Error(payload.error || `Analysis request failed (HTTP ${response.status})`);
+        }
+        if (!Array.isArray(payload.results)) {
+            throw new Error('The analysis server did not return per-leaf results. Please try again.');
         }
         results = (payload.results || []).map((result, index) => ({
             leafNumber: index + 1,
@@ -3342,6 +3354,7 @@ function displayAnalysisResults(results) {
                 <i class="fas fa-exclamation-triangle"></i> 
                 Analysis could not be completed: ${errorMessage || 'the server did not return a result.'}
             </div>
+            <div style="margin-top:12px;"><strong>Results by leaf</strong>${perLeafResults}</div>
         `;
         document.getElementById('predictionResult').style.display = 'block';
         document.getElementById('predictionResult').querySelector('.result-text').innerHTML = 

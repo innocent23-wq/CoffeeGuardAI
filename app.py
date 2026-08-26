@@ -121,9 +121,11 @@ MAX_IMAGE_BYTES = 10 * 1024 * 1024
 # A pixel cap prevents a tiny, highly-compressed image from causing slow,
 # memory-heavy OpenCV processing after it has been decoded.
 MAX_IMAGE_PIXELS = 25_000_000
-# A small fixed pool speeds up large uploads without exhausting memory on a
-# modest deployment instance. Results are still returned in leaf order.
-MAX_BATCH_WORKERS = min(4, max(1, os.cpu_count() or 1))
+# ONNX inference is already CPU-intensive.  Parallel requests made the Render
+# worker run out of memory and close the response before it could return JSON.
+# Analyse a batch in leaf order, one image at a time, so every leaf receives a
+# reliable individual result.
+MAX_BATCH_WORKERS = 1
 
 # =========================
 # DISEASE REFERENCE DATASET (Updated from Cherry to Disease)
@@ -498,6 +500,10 @@ def resolve_model_class_name(class_name, cls_id=None):
 # were silently discarded, leaving a misleading single-lesion result.
 DETECTION_CONF = 0.10
 CONFIRMED_DETECTION_CONFIDENCE = 0.45
+# Keep the strongest model boxes before NMS.  Dense rust images can produce
+# thousands of low-value candidates, which makes pure-Python NMS slow without
+# improving the result shown to the farmer.
+MAX_DETECTIONS_PER_IMAGE = 300
 # The exported ONNX model is trained at 640x640. Sending 1280x1280 causes an
 # ONNXRuntime invalid-dimension error before detection can run.
 INFERENCE_IMAGE_SIZE = 640
@@ -582,8 +588,16 @@ class OnnxDiseaseDetector:
     """
 
     def __init__(self, model_path):
+        session_options = ort.SessionOptions()
+        # Match the small Render instance: one request is analysed at a time,
+        # so allowing ONNX Runtime to create a thread pool per image only adds
+        # memory pressure and can terminate the web worker mid-response.
+        session_options.intra_op_num_threads = 1
+        session_options.inter_op_num_threads = 1
+        session_options.execution_mode = ort.ExecutionMode.ORT_SEQUENTIAL
         self.session = ort.InferenceSession(
             model_path,
+            sess_options=session_options,
             providers=['CPUExecutionProvider'],
         )
         self.input_name = self.session.get_inputs()[0].name
@@ -639,7 +653,8 @@ class OnnxDiseaseDetector:
                     'confidence': float(confidence),
                     'bbox': [x1, y1, x2, y2],
                 })
-        return self._nms(candidates, iou)
+        candidates = sorted(candidates, key=lambda item: item['confidence'], reverse=True)
+        return self._nms(candidates[:MAX_DETECTIONS_PER_IMAGE], iou)
 
 
 def load_model():
