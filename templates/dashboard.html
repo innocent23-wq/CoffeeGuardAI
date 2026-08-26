@@ -1940,7 +1940,7 @@
                 <span class="mode-note" id="severityModeNote">💡 Based on live prediction counts and recent disease and pest trends</span>
             </div>
             <p style="color:#7a5a4a; font-size:0.9rem; margin-bottom:12px;">
-                <i class="fas fa-info-circle" style="color:#8b1a1a;"></i> Enter disease counts to assess crop health and get treatment recommendations.
+                <i class="fas fa-info-circle" style="color:#8b1a1a;"></i> Enter disease counts to assess crop health.
             </p>
             <div class="estimator-grid">
                 <div class="estimator-item border-brown-eye">
@@ -1966,10 +1966,6 @@
                 <div class="row"><span><i class="fas fa-check-circle" style="color:#2D7A4A;"></i> No Disease</span><span id="estNoDiseaseCount">0</span></div>
                 <div class="row total-row"><span>📊 <strong>Total Issue Detections</strong></span><span id="estTotalDiseases">0</span></div>
                 <div class="row info-row" id="severityStatusRow"><span><i class="fas fa-heartbeat" style="color:#2d7a4a;"></i> Crop Health Status: <span id="estSeverityStatus">✅ Healthy</span></span></div>
-                <div class="recommendation-box" id="diseaseRecommendationBox">
-                    <div class="rec-title">💡 Field Guidance</div>
-                    <div class="rec-text" id="diseaseRecommendationText">No clear disease signs were found. Check the underside of the leaf and continue routine checks.</div>
-                </div>
             </div>
         </div>
 
@@ -2047,7 +2043,7 @@
                 <div class="confidence-text" id="analysisSummary"></div>
                 <div class="confidence-text" id="resultCount">Predicted figures: 0</div>
             </div>
-            <div class="prediction-result" id="predictionSummary">
+            <div class="prediction-result" id="predictionSummary" style="display:none;">
                 <div class="result-text"><i class="fas fa-list-check" style="color:#2a7f3e;"></i> Summary</div>
                 <div class="confidence-text" id="summaryCounts">Brown Eye: 0 | Leaf Miner: 0 | Leaf Rust: 0 | No Disease: 0</div>
                 <div class="confidence-text severity-badge severity-healthy" id="summarySeverity">
@@ -2057,7 +2053,7 @@
             </div>
         </div>
 
-        <div class="prediction-stats">
+        <div class="prediction-stats" style="display:none;">
             <div class="prediction-stat-card stat-brown-eye"><div class="stat-value" id="statBrownEye">0</div><div class="stat-label">Brown Eye Spot</div></div>
             <div class="prediction-stat-card stat-leaf-miner"><div class="stat-value" id="statLeafMiner">0</div><div class="stat-label">Leaf Miner</div></div>
             <div class="prediction-stat-card stat-leaf-rust"><div class="stat-value" id="statLeafRust">0</div><div class="stat-label">Leaf Rust</div></div>
@@ -2996,43 +2992,18 @@ function updateDiseaseEstimator() {
     
     // Determine severity
     let status = '✅ Healthy';
-    let rec = 'No clear disease signs were found. Check the underside of the leaf and continue routine checks.';
-    let boxClass = '';
     
     if (total === 0) {
         status = '✅ Healthy';
-        rec = 'No clear disease signs were found. Check the underside of the leaf and continue routine checks.';
-        boxClass = '';
     } else if (total < 3) {
         status = '🟢 Low Risk';
-        rec = 'A small number of affected areas were found. Mark the plant, remove badly affected leaves, and check nearby plants.';
-        boxClass = '';
     } else if (total < 8) {
         status = '🟡 Moderate Risk';
-        rec = 'Several affected areas were found. Remove badly affected leaves, clean tools after use, and inspect nearby plants.';
-        boxClass = 'warning';
     } else {
         status = '🔴 High Risk';
-        rec = 'Many affected areas were found. Separate this plant if possible, remove badly infected leaves, and contact an extension officer promptly.';
-        boxClass = 'danger';
-    }
-    
-    // Add specific recommendations
-    if (leafRust > 0) {
-        rec = 'Leaf Rust detected. Check the underside of the leaves, remove heavily infected leaves, and ask an extension officer which approved fungicide to use locally.';
-        boxClass = 'danger';
-    } else if (brownEye > 0) {
-        rec = 'Brown Eye Spot detected. Remove badly affected leaves, clear fallen leaves from around the plant, and check nearby plants for the same spots.';
-        boxClass = 'warning';
-    } else if (leafMiner > 0) {
-        rec = 'Leaf Miner detected. Remove mined leaves, check nearby plants for fresh tunnels, and follow local pest management advice before using pesticide.';
-        boxClass = 'warning';
     }
     
     document.getElementById('estSeverityStatus').textContent = status;
-    const recBox = document.getElementById('diseaseRecommendationBox');
-    recBox.className = `recommendation-box ${boxClass}`;
-    document.getElementById('diseaseRecommendationText').textContent = rec;
 }
 
 // ============================================================
@@ -3087,7 +3058,9 @@ function loadHistory() {
         
         const dateTd = document.createElement('td');
         const date = new Date(p.date);
-        dateTd.textContent = date.toLocaleString();
+        dateTd.textContent = date.toLocaleString('en-UG', {
+            timeZone: 'Africa/Kampala', dateStyle: 'medium', timeStyle: 'short'
+        });
         tr.appendChild(dateTd);
         
         tbody.appendChild(tr);
@@ -3332,18 +3305,51 @@ async function analyzeImages() {
 
 function displayAnalysisResults(results) {
     const validResults = results.filter(r => !r.failed);
-    const failedCount = results.length - validResults.length;
     const perLeafResults = results.map((result, index) => {
         const leafNumber = result.leafNumber || index + 1;
-        const title = result.failed ? 'Analysis failed' : (result.result || 'no_disease').replaceAll('_', ' ');
-        const confidence = result.failed ? '' : ` | Confidence: ${Number(result.confidence || 0).toFixed(1)}%`;
+        const labels = {
+            leaf_rust: 'Leaf Rust', brown_eye_spot: 'Brown Eye Spot',
+            leaf_miner: 'Leaf Miner', no_disease: 'No Disease'
+        };
+        const title = result.failed ? 'Analysis failed' : (labels[result.result] || result.result || 'No Disease');
+        const confidence = result.failed ? '' : `Confidence: ${Number(result.confidence || 0).toFixed(1)}%`;
+        const detectedClasses = Object.entries(result.class_counts || {})
+            .filter(([, count]) => Number(count) > 0)
+            .map(([key, count]) => `${labels[key] || key}: ${count}`)
+            .join(' · ');
         const detail = result.failed
             ? `<div style="color:#cc5555; margin-top:4px;">${result.recommendation || 'Could not be analysed.'}</div>`
-            : `<div style="margin-top:4px;">${result.recommendation || 'No additional recommendation.'}</div>`;
+            : `<div style="margin-top:4px;">Detections: ${Number(result.disease_count || 0)}${detectedClasses ? ` · ${detectedClasses}` : ''}</div>`;
         return `<div style="border:1px solid #eadfd5; border-radius:6px; padding:12px; margin-top:8px; background:#fffaf5;">
-            <strong>Leaf ${leafNumber}</strong>: ${title}${confidence}${detail}
+            <strong>Leaf ${leafNumber}</strong><div style="margin-top:4px;">Detection: ${title}${confidence ? ` · ${confidence}` : ''}</div>${detail}
         </div>`;
     }).join('');
+
+    // Batch output is intentionally per leaf. Do not combine disease counts,
+    // generate AI recommendations, or assign a batch-level diagnosis.
+    document.getElementById('analysisSummary').innerHTML = `
+        <div style="margin-bottom:12px;"><strong>Detections by leaf</strong>${perLeafResults}</div>
+    `;
+    document.getElementById('resultCount').textContent = `${results.length} leaf result(s) shown separately`;
+    document.getElementById('summaryCounts').textContent = '';
+    document.getElementById('summarySeverity').textContent = '';
+    document.getElementById('statBrownEye').textContent = '—';
+    document.getElementById('statLeafMiner').textContent = '—';
+    document.getElementById('statLeafRust').textContent = '—';
+    document.getElementById('statNoDisease').textContent = '—';
+    document.getElementById('statTotalDiseases').textContent = '—';
+    document.getElementById('predictionResult').style.display = 'block';
+    document.getElementById('predictionSummary').style.display = 'none';
+    document.querySelector('.prediction-stats').style.display = 'none';
+    document.getElementById('predictionResult').querySelector('.result-text').innerHTML =
+        validResults.length
+            ? '<i class="fas fa-microscope" style="color:#3e9e6d;"></i> Individual Leaf Detections'
+            : '<i class="fas fa-exclamation-circle" style="color:#cc5555;"></i> Analysis Error';
+    fetchPredictionsFromServer();
+    showToast(`Analysis complete: ${results.length} leaf result(s) shown separately.`, validResults.length ? 'success' : 'error');
+    if (validResults.length) playSound('success');
+    return;
+
     if (validResults.length === 0) {
         const errorMessage = results
             .filter(r => r.failed && r.recommendation)
@@ -3798,7 +3804,6 @@ async function analyzeCapturedImage() {
                         <strong>Confidence:</strong> ${result.confidence || 0}%
                         <br><span style="font-size:0.85rem; color:#7a5a4a;">${severityEmoji} Severity: ${result.severity || 'healthy'}</span>
                         <br><span style="font-size:0.85rem; color:#8b1a1a;">🦠 Total Detections: <strong>${result.disease_count || 0}</strong></span>
-                        <br><span style="font-size:0.85rem; color:#2d7a4a; margin-top:4px; display:inline-block;">💡 ${result.recommendation || 'Monitor your crop regularly.'}</span>
                     </div>
                 </div>
             `;
@@ -3812,7 +3817,7 @@ async function analyzeCapturedImage() {
                     </div>
                     <div class="confidence-text">
                         <span style="font-size:0.85rem; color:#8b6a1a;">⚠️ The model found no matching pattern; this is not a health guarantee.</span>
-                        <br><span style="font-size:0.85rem; color:#7a5a4a;">Keep monitoring your crop regularly.</span>
+                        <br><span style="font-size:0.85rem; color:#7a5a4a;">No model detections were returned for this image.</span>
                     </div>
                 </div>
             `;
@@ -3982,7 +3987,9 @@ function exportCSV() {
     }
     const headers = ['Date', 'Disease', 'Confidence', 'Disease Count', 'Severity', 'Failed'];
     const rows = predictions.map(p => [
-        new Date(p.date).toLocaleString(),
+        new Date(p.date).toLocaleString('en-UG', {
+            timeZone: 'Africa/Kampala', dateStyle: 'medium', timeStyle: 'short'
+        }),
         predictionKey(p) === 'no_disease' ? 'No Disease' :
         predictionKey(p) === 'brown_eye_spot' ? 'Brown Eye Spot' :
         predictionKey(p) === 'leaf_miner' ? 'Leaf Miner' :

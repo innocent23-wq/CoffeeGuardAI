@@ -22,7 +22,8 @@ import csv
 import re
 import smtplib
 from io import BytesIO
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from contextlib import contextmanager
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
@@ -70,6 +71,18 @@ load_dotenv()
 # CONFIG
 # =========================
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+try:
+    APP_TIMEZONE = ZoneInfo(os.getenv('APP_TIMEZONE', 'Africa/Kampala'))
+except ZoneInfoNotFoundError:
+    # Uganda uses UTC+03:00 year-round. This keeps timestamps accurate on
+    # minimal local Python installations that do not ship timezone data.
+    APP_TIMEZONE = timezone(timedelta(hours=3), name='Africa/Kampala')
+
+
+def current_time():
+    """Return an offset-aware timestamp in the application's configured zone."""
+    return datetime.now(APP_TIMEZONE)
+
 DB_PATH = os.path.join(BASE_DIR, "predictions.db")
 STATIC_DIR = os.path.join(BASE_DIR, "static")
 TEMPLATE_DIR = os.path.join(BASE_DIR, "templates")
@@ -1955,7 +1968,7 @@ def predict():
     if not upload_is_within_size_limit(file):
         return jsonify({"success": False, "error": "Image is too large. Maximum size is 10 MB."}), 400
 
-    filename = f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_{secure_filename(file.filename)}"
+    filename = f"{current_time().strftime('%Y%m%d_%H%M%S')}_{secure_filename(file.filename)}"
     filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
     file.save(filepath)
 
@@ -2040,7 +2053,7 @@ def predict():
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 session['email'], filename, result, confidence_score,
-                datetime.now().isoformat(), image_data,
+                current_time().isoformat(), image_data,
                 total_detections, json.dumps(class_counts), total_detections,
                 "leaf", 1 if ref_validated else 0, severity, recommendation
             ))
@@ -2241,7 +2254,7 @@ def validate_and_predict():
     if not upload_is_within_size_limit(file):
         return jsonify({"success": False, "error": "Image is too large. Maximum size is 10 MB."}), 400
 
-    filename = f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_{secure_filename(file.filename)}"
+    filename = f"{current_time().strftime('%Y%m%d_%H%M%S')}_{secure_filename(file.filename)}"
     filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
     file.save(filepath)
 
@@ -2310,7 +2323,7 @@ def validate_and_predict():
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 session['email'], filename, result, confidence_score,
-                datetime.now().isoformat(), image_data,
+                current_time().isoformat(), image_data,
                 total_detections, json.dumps(class_counts), total_detections,
                 "leaf", 1 if ref_validated else 0, severity, recommendation
             ))
@@ -2395,7 +2408,7 @@ def _analyse_batch_image(filepath, filename):
             "result_key": result, "confidence": round(max(0, min(100, confidence)), 2),
             "filename": filename, "disease_count": total_detections,
             "class_counts": class_counts, "severity": severity,
-            "recommendation": recommendation, "secondary_screening": secondary_screening,
+            "secondary_screening": secondary_screening,
             "review_required": detection_result.get('review_required', False),
             "confirmed_detections": detection_result.get('confirmed_detections', 0),
             "detection_type": 'leaf',
@@ -2441,7 +2454,7 @@ def predict_multiple():
             ordered_results[index] = {"success": False, "filename": original_name,
                                       "error": "Image is too large. Maximum size is 10 MB."}
             continue
-        filename = f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex}_{original_name}"
+        filename = f"{current_time().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex}_{original_name}"
         filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
         file.save(filepath)
         work_items.append((index, filepath, filename))
@@ -2472,9 +2485,9 @@ def predict_multiple():
                                          disease_count, class_counts, total_detections, severity, recommendation)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (session['email'], result['filename'], result['result_key'], confidence_score,
-                  datetime.now().isoformat(), None, result['disease_count'],
+                  current_time().isoformat(), None, result['disease_count'],
                   json.dumps(result['class_counts']), result['disease_count'], result['severity'],
-                  result['recommendation']))
+                  ''))
         results.append(result)
 
     return jsonify({
