@@ -3345,52 +3345,55 @@ async function analyzeImages() {
     const progressBar = document.getElementById('progressBar');
     const progressText = document.getElementById('progressText');
     
-    const formData = new FormData();
-    uploadedFiles.forEach(file => formData.append('images', file, file.name));
-    progressBar.style.width = '10%';
-    progressText.textContent = `Analysing ${uploadedFiles.length} coffee leaf image(s)...`;
+    const chunkSize = 12;
+    const results = [];
+    const totalChunks = Math.ceil(uploadedFiles.length / chunkSize);
+    for (let chunkStart = 0; chunkStart < uploadedFiles.length; chunkStart += chunkSize) {
+        const chunk = uploadedFiles.slice(chunkStart, chunkStart + chunkSize);
+        const formData = new FormData();
+        chunk.forEach(file => formData.append('images', file, file.name));
+        const chunkNumber = Math.floor(chunkStart / chunkSize) + 1;
+        progressBar.style.width = `${Math.round((chunkStart / uploadedFiles.length) * 100)}%`;
+        progressText.textContent = `Analysing leaves ${chunkStart + 1}-${chunkStart + chunk.length} of ${uploadedFiles.length}...`;
 
-    let results;
-    try {
-        const response = await fetch('/predict_multiple', {
-            method: 'POST', body: formData, credentials: 'include'
-        });
-        // A platform restart or timeout can return an empty HTML/body instead
-        // of JSON. Read it once and report a useful error for each leaf rather
-        // than showing the browser's cryptic "Unexpected end of JSON" message.
-        const responseText = await response.text();
-        let payload;
         try {
-            payload = responseText ? JSON.parse(responseText) : {};
-        } catch (_) {
-            throw new Error(`The analysis server returned an invalid response (HTTP ${response.status}). Please try the leaves again one at a time.`);
+            const response = await fetch('/predict_multiple', {
+                method: 'POST', body: formData, credentials: 'include'
+            });
+            const responseText = await response.text();
+            let payload;
+            try {
+                payload = responseText ? JSON.parse(responseText) : {};
+            } catch (_) {
+                throw new Error(`The analysis server returned an invalid response (HTTP ${response.status}).`);
+            }
+            if (!response.ok) {
+                throw new Error(payload.error || `Analysis request failed (HTTP ${response.status})`);
+            }
+            if (!Array.isArray(payload.results)) {
+                throw new Error('The analysis server did not return per-leaf results.');
+            }
+            payload.results.forEach((result, index) => results.push({
+                leafNumber: chunkStart + index + 1,
+                result: result.result_key || 'no_disease',
+                confidence: result.confidence || 0,
+                failed: !result.success,
+                disease_count: result.disease_count || 0,
+                class_counts: result.class_counts || {},
+                severity: result.severity || 'healthy',
+                recommendation: result.recommendation || result.error || 'Could not be analysed.',
+                secondary_screening: result.secondary_screening || null,
+                review_required: Boolean(result.review_required),
+                confirmed_detections: Number(result.confirmed_detections || 0)
+            }));
+        } catch (error) {
+            console.error(`Analysis chunk ${chunkNumber} failed:`, error);
+            chunk.forEach((file, index) => results.push({
+                leafNumber: chunkStart + index + 1, result: 'no_disease', confidence: 0,
+                failed: true, disease_count: 0, class_counts: {}, severity: 'healthy',
+                recommendation: error.message || 'Error during analysis.'
+            }));
         }
-        if (!response.ok) {
-            throw new Error(payload.error || `Analysis request failed (HTTP ${response.status})`);
-        }
-        if (!Array.isArray(payload.results)) {
-            throw new Error('The analysis server did not return per-leaf results. Please try again.');
-        }
-        results = (payload.results || []).map((result, index) => ({
-            leafNumber: index + 1,
-            result: result.result_key || 'no_disease',
-            confidence: result.confidence || 0,
-            failed: !result.success,
-            disease_count: result.disease_count || 0,
-            class_counts: result.class_counts || {},
-            severity: result.severity || 'healthy',
-            recommendation: result.recommendation || result.error || 'Could not be analysed.',
-            secondary_screening: result.secondary_screening || null,
-            review_required: Boolean(result.review_required),
-            confirmed_detections: Number(result.confirmed_detections || 0)
-        }));
-    } catch (error) {
-        console.error('Batch analysis error:', error);
-        results = uploadedFiles.map((file, index) => ({
-            leafNumber: index + 1, result: 'no_disease', confidence: 0,
-            failed: true, disease_count: 0, class_counts: {}, severity: 'healthy',
-            recommendation: error.message || 'Error during analysis.'
-        }));
     }
 
     progressBar.style.width = '100%';
