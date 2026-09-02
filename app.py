@@ -1807,6 +1807,7 @@ def get_mock_news_with_images():
 # =========================
 @app.route('/')
 def home():
+    """Provide the public entry point for browsers and Render's root URL."""
     if 'email' in session:
         return redirect('/dashboard')
     return redirect('/login')
