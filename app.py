@@ -1,5 +1,6 @@
 import os
 import sys
+import builtins
 
 # Keep optional Hugging Face model files inside this project.  The app uses the
 # cached copy only, so a slow or unavailable internet connection never delays a
@@ -74,6 +75,23 @@ except ImportError:
 # LOAD ENV
 # =========================
 load_dotenv()
+
+_ORIGINAL_PRINT = builtins.print
+
+def safe_print(*args, **kwargs):
+    """Guard startup logs against Windows cp1252 stdout encoding issues."""
+    try:
+        return _ORIGINAL_PRINT(*args, **kwargs)
+    except UnicodeEncodeError:
+        safe_args = []
+        for arg in args:
+            if isinstance(arg, str):
+                safe_args.append(arg.encode('ascii', 'replace').decode('ascii'))
+            else:
+                safe_args.append(arg)
+        return _ORIGINAL_PRINT(*safe_args, **kwargs)
+
+builtins.print = safe_print
 
 # =========================
 # CONFIG
@@ -165,6 +183,7 @@ def add_cache_headers(response):
 
 ALLOWED_IMAGE_EXTENSIONS = {'png', 'jpg', 'jpeg', 'bmp', 'tif', 'tiff', 'webp'}
 MAX_BATCH_IMAGES = 300
+MAX_DATASET_IMAGES = MAX_BATCH_IMAGES
 MAX_IMAGE_BYTES = 10 * 1024 * 1024
 # A pixel cap prevents a tiny, highly-compressed image from causing slow,
 # memory-heavy OpenCV processing after it has been decoded.
@@ -2712,10 +2731,10 @@ def upload_dataset():
                         'name': os.path.basename(file_info.filename)
                     })
         
-        if len(extracted_files) > 150:
+        if len(extracted_files) > MAX_DATASET_IMAGES:
             return jsonify({
-                "success": False, 
-                "error": f"Dataset contains {len(extracted_files)} images. Maximum is 150 images per upload."
+                "success": False,
+                "error": f"Dataset contains {len(extracted_files)} images. Maximum is {MAX_DATASET_IMAGES} images per upload."
             }), 400
         
         if not extracted_files:
