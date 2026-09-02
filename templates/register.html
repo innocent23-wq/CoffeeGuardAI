@@ -40,6 +40,7 @@
             pointer-events: none;
             opacity: 0.08;
             z-index: 0;
+            will-change: auto;  /* Optimize for rendering */
         }
 
         .leaf-1 { top: 5%; left: 5%; width: 120px; transform: rotate(-20deg); }
@@ -363,7 +364,7 @@
         <div class="divider">or</div>
 
         <div class="text">
-            Already have an account? <a href="/login">Login</a>
+            Already have an account? <a href="/login">Login</a> | <a href="/forgot-password">Forgot Password?</a>
         </div>
     </div>
 

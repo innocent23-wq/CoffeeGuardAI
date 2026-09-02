@@ -1,0 +1,53 @@
+# Render.com Production Configuration for CoffeeGuard
+# This file configures the deployment and runtime settings for optimal performance
+
+services:
+  - type: web
+    name: coffeeguard-ai
+    runtime: python
+    buildCommand: "pip install -r requirements.txt && python -c 'import onnxruntime'"
+    startCommand: "gunicorn --workers=4 --worker-class=sync --timeout=60 --bind=0.0.0.0:$PORT app:app"
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.11"
+      - key: PYTHONUNBUFFERED
+        value: "true"
+      - key: PYTHONDONTWRITEBYTECODE
+        value: "true"
+      - key: HF_HUB_OFFLINE
+        value: "1"
+      - key: HF_HOME
+        value: "/opt/render/project/src/.model_cache"
+      - key: SESSION_COOKIE_SECURE
+        value: "true"
+      - key: FLASK_ENV
+        value: "production"
+    scaling:
+      minInstances: 1
+      maxInstances: 3
+      targetMemoryPercent: 70
+      targetCPUPercent: 75
+    disk:
+      name: model_cache
+      mountPath: "/opt/render/project/src/.model_cache"
+      sizeGB: 5
+
+# Build settings
+build:
+  # Avoid installing heavy dependencies that aren't needed in production
+  - pip install --no-cache-dir -r requirements.txt
+
+# Performance optimization settings
+performance:
+  # Use memory-efficient ONNX Runtime
+  onnxruntime:
+    providers: ["CPUExecutionProvider"]
+  
+  # Database optimization
+  database:
+    poolSize: 5
+    
+  # Image processing cache
+  cache:
+    enabled: true
+    ttl: 3600

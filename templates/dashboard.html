@@ -2020,21 +2020,40 @@
         </div>
 
         <div class="section" style="margin-bottom:24px;">
-            <h3><i class="fas fa-cloud-upload-alt"></i> Upload Coffee Leaf Images</h3>
-            <div class="upload-area" onclick="document.getElementById('fileInput').click()">
-                <i class="fas fa-cloud-upload-alt"></i>
-                <p><strong>Tap to upload</strong> or drag & drop</p>
-                <p class="sub">Supported: JPG, PNG, WEBP (Max 10MB each, up to 300 images)</p>
-                <p class="sub" style="color:#8b1a1a; font-weight:600;">☕ Only coffee leaf images will be accepted (validated by AI)</p>
-                <input type="file" id="fileInput" accept="image/*" multiple onchange="handleMultipleFileUpload(event)" />
+            <h3><i class="fas fa-cloud-upload-alt"></i> Upload Coffee Leaf Images, Folders, or ZIPs</h3>
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 15px; margin-bottom: 20px;">
+                <div class="upload-area" onclick="document.getElementById('fileInput').click()" style="background: linear-gradient(135deg, rgba(139, 26, 26, 0.05), rgba(139, 26, 26, 0.02)); border: 2px dashed #8b1a1a;">
+                    <i class="fas fa-images"></i>
+                    <p><strong>Individual Images</strong></p>
+                    <p class="sub">Tap to upload or drag & drop</p>
+                    <p class="sub">JPG, PNG, WEBP (Max 10MB each)</p>
+                    <p class="sub">Up to 300 images per upload</p>
+                    <input type="file" id="fileInput" accept="image/*" multiple onchange="handleMultipleFileUpload(event)" />
+                </div>
+                <div class="upload-area" onclick="document.getElementById('folderInput').click()" style="background: linear-gradient(135deg, rgba(26, 139, 26, 0.05), rgba(26, 139, 26, 0.02)); border: 2px dashed #2d7a4a;">
+                    <i class="fas fa-folder-open"></i>
+                    <p><strong>Image Folder</strong></p>
+                    <p class="sub">Select a folder and its subfolders</p>
+                    <p class="sub">Up to 300 images</p>
+                    <input type="file" id="folderInput" accept="image/*" multiple webkitdirectory directory onchange="handleMultipleFileUpload(event)" />
+                </div>
+                <div class="upload-area" onclick="document.getElementById('datasetInput').click()" style="background: linear-gradient(135deg, rgba(26, 139, 26, 0.05), rgba(26, 139, 26, 0.02)); border: 2px dashed #2d7a4a;">
+                    <i class="fas fa-file-zipper"></i>
+                    <p><strong>Dataset ZIP</strong></p>
+                    <p class="sub">Images are extracted automatically</p>
+                    <p class="sub">Max 500MB per ZIP file</p>
+                    <p class="sub">Detection starts after loading</p>
+                    <input type="file" id="datasetInput" accept=".zip" onchange="handleDatasetUpload(event)" />
+                </div>
             </div>
             <div class="upload-error" id="uploadError"><i class="fas fa-exclamation-circle"></i> <span id="errorMessage"></span></div>
             <div class="upload-warning" id="uploadWarning"><i class="fas fa-triangle-exclamation"></i> <span id="warningMessage"></span></div>
             <div id="uploadProgress"><div class="progress-bar"><div class="progress-fill" id="progressBar"></div></div><div class="progress-text" id="progressText">Processing 0 of 0...</div></div>
             <div class="photo-preview" id="photoPreview">
                 <div class="preview-grid" id="previewContainer"></div>
-                <div style="display:flex; gap:10px; flex-wrap:wrap;">
+                <div style="display:flex; gap:10px; flex-wrap:wrap; margin-top: 12px;">
                     <button class="btn-success" onclick="analyzeImages()"><i class="fas fa-wand-magic-sparkles"></i> Detect Issues</button>
+                    <button class="btn-primary" onclick="openModal('leafNamingModal')" style="background: #2a5c7a;"><i class="fas fa-tag"></i> Customize Leaf Names</button>
                     <button class="btn-secondary" onclick="removeAllPhotos()"><i class="fas fa-trash-can"></i> Remove All</button>
                 </div>
             </div>
@@ -2313,6 +2332,54 @@
         </div>
         <p style="color:#7a5a4a; font-size:0.85rem; border-top:1px solid #f0e0d8; padding-top:12px; margin-top:12px;"><i class="fas fa-code"></i> Version 2.0.3 &nbsp;|&nbsp; <i class="fas fa-copyright"></i> 2026 CoffeeGuard</p>
         <div class="btn-group"><button onclick="closeModal('aboutModal')">Close</button></div>
+    </div>
+</div>
+
+<div id="clearModal" class="modal">
+    <div class="modal-box">
+        <h2><i class="fas fa-trash-can" style="color:#cc5555;"></i> Clear Dashboard Data</h2>
+        <p style="color:#5a3a2a; line-height:1.6; margin-bottom:16px;">⚠️ This will delete all your disease detection history, gallery images, and reports. <strong>Your profile will remain safe.</strong></p>
+        <div class="btn-group">
+            <button style="background:#cc5555;" onclick="clearAllData()"><i class="fas fa-trash-can"></i> Yes, Delete Everything</button>
+            <button onclick="closeModal('clearModal')">Cancel</button>
+        </div>
+    </div>
+</div>
+
+<div id="leafNamingModal" class="modal">
+    <div class="modal-box" style="max-width: 500px;">
+        <h2><i class="fas fa-tag"></i> Name Your Coffee Leaves</h2>
+        <p style="color:#7a5a4a; margin-bottom: 16px;">Customize how your leaves are labeled (1-150). You can use custom names or standard numbering.</p>
+        <div style="background: #f5ede8; padding: 12px; border-radius: 8px; margin-bottom: 16px;">
+            <label style="display: block; margin-bottom: 8px;"><strong>Leaf Naming Format:</strong></label>
+            <div style="display: flex; gap: 10px;">
+                <div>
+                    <input type="radio" id="leafNamingAuto" name="namingFormat" value="auto" checked />
+                    <label for="leafNamingAuto" style="display: inline;">Auto (Leaf 1, Leaf 2...)</label>
+                </div>
+                <div>
+                    <input type="radio" id="leafNamingNumber" name="namingFormat" value="number" />
+                    <label for="leafNamingNumber" style="display: inline;">Just Number (1, 2, 3...)</label>
+                </div>
+                <div>
+                    <input type="radio" id="leafNamingCustom" name="namingFormat" value="custom" />
+                    <label for="leafNamingCustom" style="display: inline;">Custom Prefix</label>
+                </div>
+            </div>
+        </div>
+        <div id="customPrefixDiv" style="display: none; margin-bottom: 16px;">
+            <label>Custom Prefix</label>
+            <input id="leafCustomPrefix" type="text" placeholder="e.g., Plant_1_Leaf_ or Farm_A_" maxlength="30" />
+            <p class="sub" style="margin-top: 4px;">Example: "Farm_A_" will result in "Farm_A_1", "Farm_A_2", etc.</p>
+        </div>
+        <div style="background: #f9f5f3; padding: 12px; border-radius: 8px; border: 1px solid #f0e0d8;">
+            <label><strong>Preview:</strong></label>
+            <p id="leafNamingPreview" style="color: #8b1a1a; font-weight: 600; margin: 8px 0;">Leaf 1, Leaf 2, Leaf 3...</p>
+        </div>
+        <div class="btn-group" style="margin-top: 16px;">
+            <button onclick="applyLeafNaming()"><i class="fas fa-check"></i> Apply</button>
+            <button onclick="closeModal('leafNamingModal')">Cancel</button>
+        </div>
     </div>
 </div>
 
@@ -2674,7 +2741,15 @@ function showToast(message, type = 'success') {
 // MODALS
 // ============================================================
 function openModal(modalId) {
-    document.getElementById(modalId).style.display = 'flex';
+    const modal = document.getElementById(modalId);
+    if (modal) {
+        modal.style.display = 'flex';
+        // Special initialization for leaf naming modal
+        if (modalId === 'leafNamingModal') {
+            setupLeafNamingListeners();
+            updateLeafNamingPreview();
+        }
+    }
 }
 
 function closeModal(modalId) {
@@ -3215,7 +3290,7 @@ async function handleMultipleFileUpload(event) {
     }
     renderUploadedPreviews();
     showToast(`✅ ${acceptedFiles.length} image(s) ready for analysis.`, 'success');
-    document.getElementById('fileInput').value = '';
+    event.target.value = '';
 }
 
 function renderUploadedPreviews() {
@@ -3225,10 +3300,10 @@ function renderUploadedPreviews() {
         const div = document.createElement('div');
         div.className = 'preview-item';
         const label = document.createElement('strong');
-        label.textContent = `Leaf ${index + 1}`;
+        label.textContent = getLeafLabel(index);
         const img = document.createElement('img');
         img.src = uploadedPreviewUrls[index];
-        img.alt = `Leaf ${index + 1}`;
+        img.alt = getLeafLabel(index);
         const badge = document.createElement('span');
         badge.className = 'disease-badge';
         badge.textContent = 'Ready to analyse';
@@ -3345,7 +3420,7 @@ function displayAnalysisResults(results) {
             ? `<div style="color:#cc5555; margin-top:4px;">${result.recommendation || 'Could not be analysed.'}</div>`
             : `<div style="margin-top:4px;">Detections: ${Number(result.disease_count || 0)}${detectedClasses ? ` · ${detectedClasses}` : ''}</div>`;
         return `<div style="border:1px solid #eadfd5; border-radius:6px; padding:12px; margin-top:8px; background:#fffaf5;">
-            <strong>Leaf ${leafNumber}</strong><div style="margin-top:4px;">Detection: ${title}${confidence ? ` · ${confidence}` : ''}</div>${detail}
+            <strong>${getLeafLabel(leafNumber - 1)}</strong><div style="margin-top:4px;">Detection: ${title}${confidence ? ` · ${confidence}` : ''}</div>${detail}
         </div>`;
     }).join('');
 
@@ -3999,6 +4074,124 @@ function loadCoffeeScope() {
 function refreshCoffeeScope() {
     loadCoffeeScope();
     showToast('🔄 Feed refreshed');
+}
+
+// ============================================================
+// DATASET (ZIP) UPLOAD HANDLING
+// ============================================================
+async function handleDatasetUpload(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+    
+    if (!file.name.endsWith('.zip')) {
+        showToast('❌ Please select a ZIP file', 'error');
+        document.getElementById('datasetInput').value = '';
+        return;
+    }
+    
+    if (file.size > 500 * 1024 * 1024) {
+        showToast('❌ ZIP file is too large. Maximum size is 500MB', 'error');
+        document.getElementById('datasetInput').value = '';
+        return;
+    }
+    
+    document.getElementById('uploadProgress').style.display = 'block';
+    document.getElementById('progressText').textContent = 'Extracting and processing dataset...';
+    document.getElementById('progressBar').style.width = '20%';
+    
+    const formData = new FormData();
+    formData.append('dataset', file);
+    
+    try {
+        const response = await fetch('/upload_dataset', {
+            method: 'POST',
+            body: formData,
+            credentials: 'include'
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            const datasetFiles = await Promise.all((data.files || []).map(async (fileInfo) => {
+                const imageResponse = await fetch(fileInfo.preview_url, {credentials: 'include'});
+                if (!imageResponse.ok) throw new Error(`Could not load ${fileInfo.name}`);
+                const blob = await imageResponse.blob();
+                return new File([blob], fileInfo.name, {type: blob.type || 'image/jpeg'});
+            }));
+            uploadedFiles = datasetFiles;
+            uploadedPreviewUrls.forEach(url => URL.revokeObjectURL(url));
+            uploadedPreviewUrls = datasetFiles.map(file => URL.createObjectURL(file));
+            renderUploadedPreviews();
+            document.getElementById('progressBar').style.width = '100%';
+            document.getElementById('progressText').textContent = `✅ Extracted ${uploadedFiles.length} images from dataset`;
+            showToast(`✅ Dataset loaded: ${uploadedFiles.length} images ready for analysis`, 'success');
+            await analyzeImages();
+        } else {
+            throw new Error(data.error || 'Failed to extract dataset');
+        }
+    } catch (error) {
+        showToast(`❌ Error: ${error.message}`, 'error');
+        document.getElementById('uploadProgress').style.display = 'none';
+    }
+    
+    document.getElementById('datasetInput').value = '';
+}
+
+// ============================================================
+// LEAF NAMING SYSTEM
+// ============================================================
+let leafNamingFormat = 'auto';
+let leafCustomPrefix = '';
+
+function setupLeafNamingListeners() {
+    document.querySelectorAll('input[name="namingFormat"]').forEach(radio => {
+        radio.addEventListener('change', (e) => {
+            leafNamingFormat = e.target.value;
+            document.getElementById('customPrefixDiv').style.display = 
+                leafNamingFormat === 'custom' ? 'block' : 'none';
+            updateLeafNamingPreview();
+        });
+    });
+    
+    const prefixInput = document.getElementById('leafCustomPrefix');
+    if (prefixInput) {
+        prefixInput.addEventListener('input', updateLeafNamingPreview);
+    }
+}
+
+function updateLeafNamingPreview() {
+    const format = leafNamingFormat;
+    let preview = '';
+    
+    if (format === 'auto') {
+        preview = 'Leaf 1, Leaf 2, Leaf 3, ... Leaf ' + uploadedFiles.length;
+    } else if (format === 'number') {
+        preview = '1, 2, 3, ... ' + uploadedFiles.length;
+    } else if (format === 'custom') {
+        const prefix = document.getElementById('leafCustomPrefix').value || 'Leaf_';
+        preview = `${prefix}1, ${prefix}2, ${prefix}3, ... ${prefix}${uploadedFiles.length}`;
+    }
+    
+    document.getElementById('leafNamingPreview').textContent = preview;
+}
+
+function applyLeafNaming() {
+    leafNamingFormat = document.querySelector('input[name="namingFormat"]:checked').value;
+    leafCustomPrefix = document.getElementById('leafCustomPrefix').value || '';
+    
+    renderUploadedPreviews();
+    closeModal('leafNamingModal');
+    showToast('✅ Leaf naming format applied', 'success');
+}
+
+function getLeafLabel(index) {
+    if (leafNamingFormat === 'number') {
+        return (index + 1).toString();
+    } else if (leafNamingFormat === 'custom') {
+        return leafCustomPrefix + (index + 1);
+    } else {
+        return `Leaf ${index + 1}`;
+    }
 }
 
 // ============================================================

@@ -15,6 +15,7 @@ import hashlib
 import random
 import string
 import uuid
+import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import logging
 import io
@@ -61,6 +62,13 @@ matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import warnings
 warnings.filterwarnings('ignore')
+
+# Performance optimizations
+try:
+    from flask_compress import Compress
+    COMPRESS_AVAILABLE = True
+except ImportError:
+    COMPRESS_AVAILABLE = False
 
 # =========================
 # LOAD ENV
@@ -127,6 +135,33 @@ os.makedirs(app.config['HEATMAP_FOLDER'], exist_ok=True)
 os.makedirs(app.config['REPORTS_FOLDER'], exist_ok=True)
 os.makedirs(app.config['REFERENCE_FOLDER'], exist_ok=True)
 os.makedirs(TEMPLATE_DIR, exist_ok=True)
+
+# Performance optimizations for Render
+if COMPRESS_AVAILABLE:
+    Compress(app)
+    app.config['COMPRESS_LEVEL'] = 6
+    app.config['COMPRESS_MIN_SIZE'] = 1024  # Only compress responses larger than 1KB
+
+# Add cache headers middleware
+@app.after_request
+def add_cache_headers(response):
+    """Add cache headers for static assets and optimize for Render."""
+    # Static assets can be cached longer
+    if request.path.startswith('/static/'):
+        if any(request.path.endswith(ext) for ext in ['.css', '.js', '.woff2', '.woff', '.ttf']):
+            response.cache_control.max_age = 86400  # 1 day
+        elif any(request.path.endswith(ext) for ext in ['.png', '.jpg', '.jpeg', '.gif', '.webp']):
+            response.cache_control.max_age = 604800  # 1 week
+    # HTML pages should not be cached
+    elif request.path in ['/', '/login', '/register', '/dashboard']:
+        response.cache_control.no_cache = True
+        response.cache_control.no_store = True
+        response.cache_control.must_revalidate = True
+    # API responses should be fresh
+    elif request.path.startswith('/api/'):
+        response.cache_control.no_cache = True
+    
+    return response
 
 ALLOWED_IMAGE_EXTENSIONS = {'png', 'jpg', 'jpeg', 'bmp', 'tif', 'tiff', 'webp'}
 MAX_BATCH_IMAGES = 300
@@ -459,6 +494,7 @@ MODEL_AVAILABLE = False
 MODEL_LOAD_ERROR = None
 MODEL_PATH = None
 model = None
+MODEL_LOAD_LOCK = threading.Lock()
 CLASS_MAP = {
     0: "leaf_rust",
     1: "brown_eye_spot",
@@ -734,7 +770,14 @@ def load_model():
         traceback.print_exc()
         return False
 
-load_model()
+def ensure_model_loaded():
+    """Load the detector only when a prediction is actually requested."""
+    if MODEL_AVAILABLE:
+        return True
+    with MODEL_LOAD_LOCK:
+        if not MODEL_AVAILABLE:
+            load_model()
+    return MODEL_AVAILABLE
 
 
 # Lightweight health endpoint for container platform healthchecks.
@@ -992,6 +1035,7 @@ def is_coffee_leaf_image(image):
 # =========================
 def detect_diseases(image, conf=DETECTION_CONF, validate_leaf=True):
     """Run best.pt on the original upload and return one count per model box."""
+    ensure_model_loaded()
     # Keep this field present in every response, including early failures.
     # Callers use it to distinguish an optional whole-leaf screening alert from
     # a YOLO lesion detection, and a missing key previously caused the upload
@@ -1769,18 +1813,20 @@ def home():
 
 @app.route('/register', methods=['GET', 'POST'])
 def register():
+    """Optimized registration with async email sending."""
     if request.method == 'POST':
         fullname = request.form.get("fullname", "").strip()
         email = request.form.get("email", "").strip()
         password = request.form.get("password", "").strip()
         phone = request.form.get("phone", "").strip()
 
+        # Validate input
         if not fullname or len(fullname) < 2:
-            return render_template("register.html", error="Please enter your full name (minimum 2 characters).")
+            return render_template("register.html", error="Please enter your full name (minimum 2 characters)."), 400
         if not email or '@' not in email or '.' not in email:
-            return render_template("register.html", error="Please enter a valid email address.", fullname=fullname, phone=phone)
+            return render_template("register.html", error="Please enter a valid email address.", fullname=fullname, phone=phone), 400
         if not password or len(password) < 6:
-            return render_template("register.html", error="Password must be at least 6 characters.", fullname=fullname, email=email, phone=phone)
+            return render_template("register.html", error="Password must be at least 6 characters.", fullname=fullname, email=email, phone=phone), 400
 
         try:
             with get_db() as conn:
@@ -1789,14 +1835,30 @@ def register():
                     INSERT INTO users (fullname, email, password, phone, created_at)
                     VALUES (?, ?, ?, ?, ?)
                 """, (fullname, email, password, phone, datetime.now().isoformat()))
-            send_email(email, "Welcome to CoffeeGuard! ☕",
-                      f"Hello {fullname},\n\nWelcome to CoffeeGuard! 🎉\n\nYou've successfully created your account. Start detecting coffee leaf diseases today!\n\nBest regards,\nThe CoffeeGuard Team")
-            return render_template("login.html", success="✅ Account created successfully! Please login.")
+            
+            # Send welcome email asynchronously (non-blocking)
+            try:
+                # Send email in background thread to avoid blocking response
+                from threading import Thread
+                email_thread = Thread(
+                    target=send_email,
+                    args=(email, "Welcome to CoffeeGuard! ☕",
+                          f"Hello {fullname},\n\nWelcome to CoffeeGuard! 🎉\n\nYou've successfully created your account. Start detecting coffee leaf diseases today!\n\nBest regards,\nThe CoffeeGuard Team"),
+                    daemon=True
+                )
+                email_thread.start()
+            except Exception as e:
+                logging.warning(f"Failed to send welcome email: {e}")
+            
+            response = make_response(render_template("login.html", success="✅ Account created successfully! Please login."))
+            response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+            return response
+            
         except sqlite3.IntegrityError:
-            return render_template("register.html", error="❌ Email already exists. Please use a different email.", fullname=fullname, phone=phone)
+            return render_template("register.html", error="❌ Email already exists. Please use a different email.", fullname=fullname, phone=phone), 409
         except Exception as e:
-            print(f"Registration error: {e}")
-            return render_template("register.html", error="❌ An error occurred. Please try again.", fullname=fullname, phone=phone)
+            logging.error(f"Registration error: {e}")
+            return render_template("register.html", error="❌ An error occurred. Please try again.", fullname=fullname, phone=phone), 500
 
     return render_template("register.html")
 
@@ -1804,31 +1866,46 @@ def register():
 def login():
     return render_template("login.html")
 
-@app.route('/login_user', methods=['POST'])
+@app.route('/login_user', methods=['GET', 'POST'])
 def login_user():
+    """Optimized login with minimal database operations."""
+    if request.method == 'GET':
+        return redirect('/login')
+
     email = request.form.get('email', '').strip()
     password = request.form.get('password', '').strip()
+    
     if not email or not password:
-        return render_template("login.html", error="⚠️ Please fill in all fields.")
+        return render_template("login.html", error="⚠️ Please fill in all fields."), 400
+    
     try:
         with get_db() as conn:
             c = conn.cursor()
+            # Single query for all needed user data
             c.execute("""
                 SELECT fullname, email, phone, location, avatar_data
                 FROM users
                 WHERE email=? AND password=?
             """, (email, password))
             user = c.fetchone()
+            
             if user:
+                # Set session variables
+                session.permanent = True
                 session['email'] = user[1]
                 session['fullname'] = user[0]
-                session['phone'] = user[2] if user[2] else ""
-                session['location'] = user[3] if user[3] else "Uganda"
-                return redirect('/dashboard')
-            return render_template("login.html", error="❌ Invalid email or password. Please try again.")
+                session['phone'] = user[2] or ""
+                session['location'] = user[3] or "Uganda"
+                
+                # Return success response with proper status code
+                response = make_response(redirect('/dashboard'))
+                response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+                return response
+            
+            return render_template("login.html", error="❌ Invalid email or password. Please try again."), 401
     except Exception as e:
-        print(f"❌ Login error: {e}")
-        return render_template("login.html", error="❌ An error occurred. Please try again.")
+        logging.error(f"Login error: {e}")
+        return render_template("login.html", error="❌ An error occurred. Please try again."), 500
 
 @app.route('/dashboard')
 def dashboard():
@@ -2595,6 +2672,91 @@ def predict_multiple():
     })
 
 # =========================
+# DATASET (ZIP) UPLOAD ENDPOINT
+# =========================
+@app.route('/upload_dataset', methods=['POST'])
+def upload_dataset():
+    """Extract and process ZIP dataset containing multiple coffee leaf images."""
+    if 'email' not in session:
+        return jsonify({"error": "unauthorized"}), 401
+    if 'dataset' not in request.files:
+        return jsonify({"success": False, "error": "No dataset uploaded"}), 400
+    
+    dataset_file = request.files['dataset']
+    if not dataset_file.filename.endswith('.zip'):
+        return jsonify({"success": False, "error": "Only ZIP files are supported"}), 400
+    
+    # Check file size (max 500MB)
+    dataset_file.stream.seek(0, os.SEEK_END)
+    file_size = dataset_file.stream.tell()
+    dataset_file.stream.seek(0)
+    if file_size > 500 * 1024 * 1024:
+        return jsonify({"success": False, "error": "ZIP file is too large. Maximum size is 500MB"}), 400
+    
+    import zipfile
+    try:
+        import zipfile
+        extracted_files = []
+        with zipfile.ZipFile(dataset_file.stream, 'r') as zip_ref:
+            # Get list of image files
+            for file_info in zip_ref.filelist:
+                if file_info.is_dir():
+                    continue
+                
+                filename_lower = file_info.filename.lower()
+                # Check if it's an image file
+                if any(filename_lower.endswith(ext) for ext in ['.jpg', '.jpeg', '.png', '.webp', '.bmp', '.tiff']):
+                    extracted_files.append({
+                        'info': file_info,
+                        'name': os.path.basename(file_info.filename)
+                    })
+        
+        if len(extracted_files) > 150:
+            return jsonify({
+                "success": False, 
+                "error": f"Dataset contains {len(extracted_files)} images. Maximum is 150 images per upload."
+            }), 400
+        
+        if not extracted_files:
+            return jsonify({"success": False, "error": "No image files found in the ZIP file"}), 400
+        
+        # Convert extracted files to frontend-compatible format
+        files_data = []
+        dataset_file.stream.seek(0)
+        with zipfile.ZipFile(dataset_file.stream, 'r') as zip_ref:
+            for file_info in extracted_files:
+                original_name = secure_filename(file_info['name']) or 'dataset_image'
+                filename = f"dataset_{uuid.uuid4().hex}_{original_name}"
+                destination = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+                with zip_ref.open(file_info['info']) as source, open(destination, 'wb') as target:
+                    target.write(source.read(MAX_IMAGE_BYTES + 1))
+                if os.path.getsize(destination) > MAX_IMAGE_BYTES:
+                    os.remove(destination)
+                    continue
+                files_data.append({
+                    'name': original_name,
+                    'filename': filename,
+                    'preview_url': f"/static/uploads/{filename}"
+                })
+
+        if not files_data:
+            return jsonify({"success": False, "error": "No usable images found in the ZIP file"}), 400
+        
+        return jsonify({
+            "success": True,
+            "files": files_data,
+            "preview_urls": [f['preview_url'] for f in files_data],
+            "count": len(files_data),
+            "message": f"Successfully extracted {len(files_data)} images from dataset"
+        })
+        
+    except zipfile.BadZipFile:
+        return jsonify({"success": False, "error": "The ZIP file is corrupted or invalid"}), 400
+    except Exception as e:
+        logging.exception("Dataset upload error")
+        return jsonify({"success": False, "error": f"Failed to process dataset: {str(e)}"}), 500
+
+# =========================
 # HISTORY & DATA ROUTES - UPDATED
 # =========================
 @app.route('/delete_predictions', methods=['POST'])
@@ -3086,6 +3248,141 @@ def disease_info():
             "severe": "🔴 Severe - Immediate action required"
         }
     })
+
+# =========================
+# HEALTH CHECK & STATUS ENDPOINTS (for Render monitoring)
+# =========================
+@app.route('/health', methods=['GET'])
+def health_check():
+    """Quick health check for load balancer."""
+    try:
+        with get_db() as conn:
+            conn.execute("SELECT 1")
+        return jsonify({
+            "status": "healthy",
+            "model_available": MODEL_AVAILABLE,
+            "database": "ok"
+        }), 200
+    except Exception as e:
+        return jsonify({
+            "status": "unhealthy",
+            "error": str(e)
+        }), 503
+
+@app.route('/ping', methods=['GET'])
+def ping():
+    """Lightweight ping for health monitoring."""
+    return "pong", 200
+
+@app.route('/status', methods=['GET'])
+def status():
+    """Detailed application status."""
+    return jsonify({
+        "app": "CoffeeGuard AI",
+        "version": "2.0.3",
+        "status": "running",
+        "model_available": MODEL_AVAILABLE,
+        "features": {
+            "batch_processing": True,
+            "dataset_upload": True,
+            "disease_detection": MODEL_AVAILABLE,
+            "email_notifications": bool(EMAIL_USER)
+        }
+    }), 200
+
+# =========================
+# PASSWORD RECOVERY - NEW FEATURE
+# =========================
+@app.route('/forgot-password')
+def forgot_password():
+    """Show forgot password page."""
+    return render_template('forgot-password.html')
+
+@app.route('/find-account', methods=['POST'])
+def find_account():
+    """Find account by phone number."""
+    try:
+        data = request.get_json()
+        phone = data.get('phone', '').strip()
+        
+        if not phone:
+            return jsonify({"found": False, "message": "Please enter a phone number"}), 400
+        
+        with get_db() as conn:
+            c = conn.cursor()
+            c.execute("SELECT email FROM users WHERE phone=? LIMIT 1", (phone,))
+            user = c.fetchone()
+            
+            if user:
+                return jsonify({"found": True, "email": user[0]}), 200
+            return jsonify({"found": False, "message": "No account found with this phone number"}), 404
+    except Exception as e:
+        logging.error(f"Find account error: {e}")
+        return jsonify({"found": False, "message": str(e)}), 500
+
+@app.route('/reset-password', methods=['GET', 'POST'])
+def reset_password():
+    """Reset password using phone number."""
+    if request.method == 'GET':
+        return redirect('/forgot-password')
+    
+    try:
+        data = request.get_json()
+        phone = data.get('phone', '').strip()
+        new_password = data.get('new_password', '').strip()
+        
+        if not phone or not new_password:
+            return jsonify({"success": False, "message": "Phone number and password required"}), 400
+        
+        if len(new_password) < 6:
+            return jsonify({"success": False, "message": "Password must be at least 6 characters"}), 400
+        
+        with get_db() as conn:
+            c = conn.cursor()
+            # Update password for user with this phone number
+            c.execute("""
+                UPDATE users 
+                SET password = ? 
+                WHERE phone = ?
+            """, (new_password, phone))
+            
+            if c.rowcount == 0:
+                return jsonify({"success": False, "message": "Account not found"}), 404
+        
+        return jsonify({"success": True, "message": "Password reset successfully!"}), 200
+    except Exception as e:
+        logging.error(f"Reset password error: {e}")
+        return jsonify({"success": False, "message": str(e)}), 500
+
+# =========================
+# ACCOUNT DELETION - ALLOW EMAIL REUSE
+# =========================
+@app.route('/delete-account', methods=['POST'])
+def delete_account():
+    """Delete user account (allows email reuse)."""
+    if 'email' not in session:
+        return jsonify({"error": "unauthorized"}), 401
+    
+    try:
+        password = request.get_json().get('password', '')
+        email = session['email']
+        
+        with get_db() as conn:
+            c = conn.cursor()
+            # Verify password before deletion
+            c.execute("SELECT email FROM users WHERE email=? AND password=?", (email, password))
+            if not c.fetchone():
+                return jsonify({"success": False, "message": "Incorrect password"}), 401
+            
+            # Delete all user data
+            c.execute("DELETE FROM predictions WHERE email=?", (email,))
+            c.execute("DELETE FROM users WHERE email=?", (email,))
+        
+        session.clear()
+        return jsonify({"success": True, "message": "Account deleted successfully"}), 200
+    except Exception as e:
+        logging.error(f"Account deletion error: {e}")
+        return jsonify({"success": False, "message": str(e)}), 500
 
 # =========================
 # LOGOUT
