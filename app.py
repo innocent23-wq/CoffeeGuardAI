@@ -736,6 +736,11 @@ def load_model():
         os.getenv('MODEL_PATH', ''),
         os.path.join(BASE_DIR, 'decfia_best.onnx'),
         os.path.join(BASE_DIR, 'decafia_best.onnx'),
+        os.path.join(BASE_DIR, 'best.onnx'),
+        os.path.join(BASE_DIR, 'best.pt'),
+        os.path.join(BASE_DIR, 'best_cherry.pt'),
+        os.path.join(BASE_DIR, 'trained_models', 'best.pt'),
+        os.path.join(BASE_DIR, 'trained_models', 'best_cherry.pt'),
         os.path.join(
             BASE_DIR,
             'YOLOv8-Based-SUNet-Real-Time-Coffee-Leaf-Disease-Detection-Using-a-Hybrid-Deep-Learning-Model',
@@ -746,16 +751,27 @@ def load_model():
             'YOLOv8-Based-SUNet-Real-Time-Coffee-Leaf-Disease-Detection-Using-a-Hybrid-Deep-Learning-Model',
             'decafia_best.onnx',
         ),
-        os.path.join(BASE_DIR, 'best.onnx'),
+        os.path.join(
+            BASE_DIR,
+            'YOLOv8-Based-SUNet-Real-Time-Coffee-Leaf-Disease-Detection-Using-a-Hybrid-Deep-Learning-Model',
+            'best.pt',
+        ),
+        os.path.join(
+            BASE_DIR,
+            'YOLOv8-Based-SUNet-Real-Time-Coffee-Leaf-Disease-Detection-Using-a-Hybrid-Deep-Learning-Model',
+            'best_cherry.pt',
+        ),
         os.path.join(os.path.expanduser('~'), 'Downloads', 'decfia_best.onnx'),
         os.path.join(os.path.expanduser('~'), 'Downloads', 'decafia_best.onnx'),
+        os.path.join(os.path.expanduser('~'), 'Downloads', 'best.pt'),
+        os.path.join(os.path.expanduser('~'), 'Downloads', 'best_cherry.pt'),
     ]
 
     model_path = next((path for path in candidate_paths if path and os.path.isfile(path)), None)
 
     if model_path is None:
         MODEL_LOAD_ERROR = 'No trained disease model file was found.'
-        print(f"❌ {MODEL_LOAD_ERROR} Looked for: decfia_best.onnx, decafia_best.onnx, best.onnx")
+        print(f"❌ {MODEL_LOAD_ERROR} Looked for: decfia_best.onnx, decafia_best.onnx, best.onnx, best.pt, best_cherry.pt")
         return False
 
     try:
