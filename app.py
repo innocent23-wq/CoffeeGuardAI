@@ -815,6 +815,13 @@ def ensure_model_loaded():
     return MODEL_AVAILABLE
 
 
+# Ensure the model is ready as soon as the application boots.  The live app was
+# correctly loading the detector in test scripts yet still reporting
+# "AI model disabled" when started through `python app.py` because this startup
+# hook was never executed.
+load_model()
+
+
 # Lightweight health endpoint for container platform healthchecks.
 @app.route('/health', methods=['GET'])
 def health():
@@ -3445,6 +3452,8 @@ def refresh_references():
 # MAIN - FIXED FOR RENDER DEPLOYMENT
 # =========================
 if __name__ == "__main__":
+    # Ensure the detector is available before serving requests from a local run.
+    load_model()
     print("=" * 60)
     print("☕ CoffeeGuard AI - Disease Detection Running...")
     print("=" * 60)
