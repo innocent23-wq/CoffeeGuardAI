@@ -3345,7 +3345,7 @@ async function analyzeImages() {
     const progressBar = document.getElementById('progressBar');
     const progressText = document.getElementById('progressText');
     
-    const chunkSize = 12;
+    const chunkSize = 1;
     const results = [];
     const totalChunks = Math.ceil(uploadedFiles.length / chunkSize);
     for (let chunkStart = 0; chunkStart < uploadedFiles.length; chunkStart += chunkSize) {

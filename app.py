@@ -17,7 +17,6 @@ import random
 import string
 import uuid
 import threading
-from concurrent.futures import ThreadPoolExecutor, as_completed
 import logging
 import io
 import csv
@@ -2557,8 +2556,6 @@ def predict_multiple():
     results = []
     rejected = []
 
-    # Save uploads first, then run bounded concurrent inference. Database writes
-    # remain below in the request thread to avoid SQLite write contention.
     ordered_results = [None] * len(files)
     work_items = []
     for index, file in enumerate(files):
@@ -2579,19 +2576,13 @@ def predict_multiple():
         file.save(filepath)
         work_items.append((index, filepath, filename))
 
-    with ThreadPoolExecutor(max_workers=MAX_BATCH_WORKERS) as executor:
-        futures = {
-            executor.submit(_analyse_batch_image, filepath, filename): index
-            for index, filepath, filename in work_items
-        }
-        for future in as_completed(futures):
-            index = futures[future]
-            try:
-                ordered_results[index] = future.result()
-            except Exception as error:
-                logging.exception('Unexpected batch worker error')
-                ordered_results[index] = {"success": False, "filename": files[index].filename,
-                                          "error": str(error)}
+    for index, filepath, filename in work_items:
+        try:
+            ordered_results[index] = _analyse_batch_image(filepath, filename)
+        except Exception as error:
+            logging.exception('Unexpected batch prediction error')
+            ordered_results[index] = {"success": False, "filename": files[index].filename,
+                                      "error": str(error)}
 
     for result in ordered_results:
         if not result['success']:
