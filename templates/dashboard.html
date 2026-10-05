@@ -2048,6 +2048,33 @@
             </div>
             <div class="upload-error" id="uploadError"><i class="fas fa-exclamation-circle"></i> <span id="errorMessage"></span></div>
             <div class="upload-warning" id="uploadWarning"><i class="fas fa-triangle-exclamation"></i> <span id="warningMessage"></span></div>
+            <div style="margin: 18px 0 10px; padding: 12px 14px; border:1px solid #eadfd5; border-radius:10px; background:#fffaf5; display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+                <label style="display:flex; align-items:center; gap:8px; font-size:0.92rem; color:#5d463d; font-weight:600; margin:0;">
+                    <input id="useSampleToggle" type="checkbox" />
+                    Use a sample for detection
+                </label>
+                <span style="font-size:0.82rem; color:#7d625d;">If you want, choose the population and sampling method below.</span>
+            </div>
+            <div id="samplePanel" style="margin: 0 0 8px; padding: 14px 16px; background: #fffaf5; border:1px solid #eadfd5; border-radius: 12px; display:none;">
+                <div style="display:flex; flex-wrap:wrap; gap:12px; align-items:end; margin-bottom:8px;">
+                    <div>
+                        <label style="display:block; font-size:0.8rem; margin-bottom:6px; color:#5d463d; font-weight:600;">Population</label>
+                        <input id="samplePopulation" type="number" min="1" value="1" style="width:120px; padding:10px 12px; border:1px solid #d7c3b8; border-radius:8px; background:#fff;" />
+                    </div>
+                    <div>
+                        <label style="display:block; font-size:0.8rem; margin-bottom:6px; color:#5d463d; font-weight:600;">Sampling method</label>
+                        <select id="sampleMethod" style="width:160px; padding:10px 12px; border:1px solid #d7c3b8; border-radius:8px; background:#fff;">
+                            <option value="cochran">Cochran</option>
+                            <option value="slovin">Slovin</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label style="display:block; font-size:0.8rem; margin-bottom:6px; color:#5d463d; font-weight:600;">Sample size</label>
+                        <div id="sampleSizeValue" style="min-width:90px; padding:10px 12px; border-radius:8px; background:#f2e7df; font-weight:700; color:#8b1a1a; text-align:center;">0</div>
+                    </div>
+                </div>
+                <div style="font-size:0.88rem; color:#5d463d;">Selected sample: <strong id="sampleSummary">0 leaves</strong></div>
+            </div>
             <div id="uploadProgress"><div class="progress-bar"><div class="progress-fill" id="progressBar"></div></div><div class="progress-text" id="progressText">Processing 0 of 0...</div></div>
             <div class="photo-preview" id="photoPreview">
                 <div class="preview-grid" id="previewContainer"></div>
@@ -3320,6 +3347,69 @@ function renderUploadedPreviews() {
         previewContainer.appendChild(div);
     });
     document.getElementById('photoPreview').style.display = uploadedFiles.length ? 'block' : 'none';
+    syncSampleControls();
+}
+
+function calculateSampleSize(population, method) {
+    const total = Number(population) || 0;
+    if (total <= 0) return 0;
+    const z = 1.96;
+    const p = 0.5;
+    const e = 0.05;
+
+    if (method === 'slovin') {
+        const sample = total / (1 + (total * e * e));
+        return Math.max(1, Math.min(total, Math.round(sample)));
+    }
+
+    const cochran = (z * z * p * (1 - p)) / (e * e);
+    const adjusted = cochran / (1 + ((cochran - 1) / total));
+    return Math.max(1, Math.min(total, Math.round(adjusted)));
+}
+
+function syncSampleControls() {
+    const useSampleToggle = document.getElementById('useSampleToggle');
+    const populationInput = document.getElementById('samplePopulation');
+    const methodSelect = document.getElementById('sampleMethod');
+    const sampleSizeValue = document.getElementById('sampleSizeValue');
+    const sampleSummary = document.getElementById('sampleSummary');
+    const samplePanel = document.getElementById('samplePanel');
+    if (!populationInput || !methodSelect || !sampleSizeValue || !sampleSummary || !samplePanel) return;
+
+    const useSample = Boolean(useSampleToggle && useSampleToggle.checked);
+    samplePanel.style.display = useSample && uploadedFiles.length ? 'block' : 'none';
+
+    const population = Math.max(1, Number(populationInput.value) || uploadedFiles.length || 1);
+    populationInput.value = population;
+    const sampleSize = calculateSampleSize(population, methodSelect.value);
+    sampleSizeValue.textContent = sampleSize;
+    sampleSummary.textContent = useSample
+        ? (sampleSize >= population ? 'All leaves selected' : `${sampleSize} leaves selected from ${population}`)
+        : 'No sample selected';
+}
+
+function getSampledFiles() {
+    const useSampleToggle = document.getElementById('useSampleToggle');
+    const populationInput = document.getElementById('samplePopulation');
+    const methodSelect = document.getElementById('sampleMethod');
+    if (!uploadedFiles.length) return [];
+    if (!useSampleToggle || !useSampleToggle.checked) return uploadedFiles;
+    if (!populationInput || !methodSelect) return uploadedFiles;
+
+    const population = Math.max(1, Number(populationInput.value) || uploadedFiles.length);
+    const sampleSize = calculateSampleSize(population, methodSelect.value);
+    const sourceFiles = uploadedFiles.slice();
+
+    if (sampleSize >= sourceFiles.length) {
+        return sourceFiles;
+    }
+
+    const shuffled = [...sourceFiles];
+    for (let i = shuffled.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+    }
+    return shuffled.slice(0, sampleSize);
 }
 
 function removeAllPhotos() {
@@ -3332,6 +3422,16 @@ function removeAllPhotos() {
     document.getElementById('fileInput').value = '';
     document.getElementById('uploadWarning').classList.remove('show');
     document.getElementById('uploadError').classList.remove('show');
+    const useSampleToggle = document.getElementById('useSampleToggle');
+    if (useSampleToggle) {
+        useSampleToggle.checked = false;
+    }
+    if (document.getElementById('samplePopulation')) {
+        document.getElementById('samplePopulation').value = 0;
+    }
+    if (document.getElementById('samplePanel')) {
+        document.getElementById('samplePanel').style.display = 'none';
+    }
     showToast('🗑️ All images removed', 'info');
 }
 
@@ -3340,21 +3440,33 @@ async function analyzeImages() {
         showToast('❌ No images to analyze. Please upload valid leaf images first.', 'error');
         return;
     }
-    
+
+    const filesToAnalyze = getSampledFiles();
+    if (filesToAnalyze.length === 0) {
+        showToast('❌ No leaves left to analyze.', 'error');
+        return;
+    }
+
     document.getElementById('uploadProgress').style.display = 'block';
     const progressBar = document.getElementById('progressBar');
     const progressText = document.getElementById('progressText');
-    
+    const useSample = document.getElementById('useSampleToggle')?.checked;
+    const sampleDisplay = useSample && filesToAnalyze.length < uploadedFiles.length
+        ? `${filesToAnalyze.length} sampled leaves from ${uploadedFiles.length}`
+        : 'All uploaded leaves';
+    progressText.textContent = `Using ${sampleDisplay}. Starting detection...`;
+    progressBar.style.width = '10%';
+
     const chunkSize = 1;
     const results = [];
-    const totalChunks = Math.ceil(uploadedFiles.length / chunkSize);
-    for (let chunkStart = 0; chunkStart < uploadedFiles.length; chunkStart += chunkSize) {
-        const chunk = uploadedFiles.slice(chunkStart, chunkStart + chunkSize);
+    const totalChunks = Math.ceil(filesToAnalyze.length / chunkSize);
+    for (let chunkStart = 0; chunkStart < filesToAnalyze.length; chunkStart += chunkSize) {
+        const chunk = filesToAnalyze.slice(chunkStart, chunkStart + chunkSize);
         const formData = new FormData();
         chunk.forEach(file => formData.append('images', file, file.name));
         const chunkNumber = Math.floor(chunkStart / chunkSize) + 1;
-        progressBar.style.width = `${Math.round((chunkStart / uploadedFiles.length) * 100)}%`;
-        progressText.textContent = `Analysing leaves ${chunkStart + 1}-${chunkStart + chunk.length} of ${uploadedFiles.length}...`;
+        progressBar.style.width = `${Math.round((chunkStart / filesToAnalyze.length) * 100)}%`;
+        progressText.textContent = `Analysing sampled leaves ${chunkStart + 1}-${chunkStart + chunk.length} of ${filesToAnalyze.length}...`;
 
         try {
             const response = await fetch('/predict_multiple', {
@@ -4124,10 +4236,14 @@ async function handleDatasetUpload(event) {
             uploadedFiles = datasetFiles;
             uploadedPreviewUrls.forEach(url => URL.revokeObjectURL(url));
             uploadedPreviewUrls = datasetFiles.map(file => URL.createObjectURL(file));
+            if (document.getElementById('samplePopulation')) {
+                document.getElementById('samplePopulation').value = datasetFiles.length;
+            }
             renderUploadedPreviews();
             document.getElementById('progressBar').style.width = '100%';
             document.getElementById('progressText').textContent = `✅ Extracted ${uploadedFiles.length} images from dataset`;
             showToast(`✅ Dataset loaded: ${uploadedFiles.length} images ready for analysis`, 'success');
+            syncSampleControls();
             await analyzeImages();
         } else {
             throw new Error(data.error || 'Failed to extract dataset');
@@ -4205,20 +4321,25 @@ function exportCSV() {
         showToast('No data to export', 'error');
         return;
     }
-    const headers = ['Date', 'Disease', 'Confidence', 'Disease Count', 'Severity', 'Failed'];
-    const rows = predictions.map(p => [
-        new Date(p.date).toLocaleString('en-UG', {
-            timeZone: 'Africa/Kampala', dateStyle: 'medium', timeStyle: 'short'
-        }),
-        predictionKey(p) === 'no_disease' ? 'No Disease' :
-        predictionKey(p) === 'brown_eye_spot' ? 'Brown Eye Spot' :
-        predictionKey(p) === 'leaf_miner' ? 'Leaf Miner' :
-        predictionKey(p) === 'leaf_rust' ? 'Leaf Rust' : p.result,
-        p.failed ? 'N/A' : Math.round(p.confidence || 0),
-        p.disease_count || 0,
-        p.severity || 'healthy',
-        p.failed ? 'Yes' : 'No'
-    ]);
+    const headers = ['Leaf', 'Disease', 'Confidence (%)', 'Disease Count', 'Severity', 'Date', 'Status'];
+    const rows = predictions.map((p, index) => {
+        const leafName = getLeafLabel ? getLeafLabel(index) : `Leaf ${index + 1}`;
+        const diseaseName = predictionKey(p) === 'no_disease' ? 'No Disease' :
+            predictionKey(p) === 'brown_eye_spot' ? 'Brown Eye Spot' :
+            predictionKey(p) === 'leaf_miner' ? 'Leaf Miner' :
+            predictionKey(p) === 'leaf_rust' ? 'Leaf Rust' : p.result;
+        return [
+            leafName,
+            diseaseName,
+            p.failed ? 'N/A' : Math.round(p.confidence || 0),
+            p.disease_count || 0,
+            p.severity || 'healthy',
+            new Date(p.date).toLocaleString('en-UG', {
+                timeZone: 'Africa/Kampala', dateStyle: 'medium', timeStyle: 'short'
+            }),
+            p.failed ? 'Failed' : 'Detected'
+        ];
+    });
     let csv = headers.join(',') + '\n' + rows.map(r => r.join(',')).join('\n');
     const blob = new Blob([csv], { type: 'text/csv' });
     const url = URL.createObjectURL(blob);
@@ -4366,6 +4487,21 @@ async function init() {
     }
     
     bindInteractiveSounds();
+
+    const populationInput = document.getElementById('samplePopulation');
+    const methodSelect = document.getElementById('sampleMethod');
+    const useSampleToggle = document.getElementById('useSampleToggle');
+    if (populationInput) {
+        populationInput.value = uploadedFiles.length || 1;
+        populationInput.addEventListener('input', syncSampleControls);
+    }
+    if (methodSelect) {
+        methodSelect.addEventListener('change', syncSampleControls);
+    }
+    if (useSampleToggle) {
+        useSampleToggle.checked = false;
+        useSampleToggle.addEventListener('change', syncSampleControls);
+    }
     
     await fetchPredictionsFromServer();
     await fetchReportsFromServer();

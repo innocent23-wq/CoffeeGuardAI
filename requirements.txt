@@ -8,15 +8,15 @@ gunicorn==23.0.0
 # not install PyTorch, Ultralytics, or timm here: their large dependency tree
 # can exceed a Render instance's memory during startup.
 onnx==1.16.2
-onnxruntime==1.20.1
+onnxruntime==1.30.0
 
 # Image handling
-opencv-python-headless==4.8.0.74
-Pillow==10.0.0
-numpy==1.26.4
+opencv-python-headless==4.10.0.84
+Pillow==11.1.0
+numpy==2.1.3
 # Used to generate downloadable detection-report charts.
-matplotlib==3.7.2
+matplotlib==3.9.2
 
 # Utilities
 python-dotenv==1.0.0
-requests==2.31.0
+requests==2.32.3
