@@ -2729,8 +2729,8 @@ def upload_dataset():
     
     import zipfile
     try:
-        import zipfile
         extracted_files = []
+        image_extensions = ('.jpg', '.jpeg', '.png', '.webp', '.bmp', '.tif', '.tiff')
         with zipfile.ZipFile(dataset_file.stream, 'r') as zip_ref:
             # Get list of image files
             for file_info in zip_ref.filelist:
@@ -2738,11 +2738,10 @@ def upload_dataset():
                     continue
                 
                 filename_lower = file_info.filename.lower()
-                # Check if it's an image file
-                if any(filename_lower.endswith(ext) for ext in ['.jpg', '.jpeg', '.png', '.webp', '.bmp', '.tiff']):
+                if filename_lower.endswith(image_extensions):
                     extracted_files.append({
                         'info': file_info,
-                        'name': os.path.basename(file_info.filename)
+                        'name': os.path.basename(file_info.filename),
                     })
         
         if len(extracted_files) > MAX_DATASET_IMAGES:
@@ -2754,19 +2753,54 @@ def upload_dataset():
         if not extracted_files:
             return jsonify({"success": False, "error": "No image files found in the ZIP file"}), 400
         
-        # Convert extracted files to frontend-compatible format
+        # Decode on the server rather than relying on the browser's image
+        # decoder. Normalize valid formats/orientations to JPEG so previews
+        # and later inference consume identical, readable bytes.
         files_data = []
+        skipped_files = []
         dataset_file.stream.seek(0)
         with zipfile.ZipFile(dataset_file.stream, 'r') as zip_ref:
-            for file_info in extracted_files:
-                original_name = secure_filename(file_info['name']) or 'dataset_image'
-                filename = f"dataset_{uuid.uuid4().hex}_{original_name}"
-                destination = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-                with zip_ref.open(file_info['info']) as source, open(destination, 'wb') as target:
-                    target.write(source.read(MAX_IMAGE_BYTES + 1))
-                if os.path.getsize(destination) > MAX_IMAGE_BYTES:
-                    os.remove(destination)
+            for item in extracted_files:
+                file_info = item['info']
+                original_name = secure_filename(item['name']) or 'dataset_image'
+                if file_info.file_size <= 0:
+                    skipped_files.append({'name': original_name, 'reason': 'empty file in ZIP archive'})
                     continue
+
+                if file_info.file_size > MAX_IMAGE_BYTES:
+                    skipped_files.append({'name': original_name, 'reason': 'larger than 10 MB'})
+                    continue
+
+                try:
+                    with zip_ref.open(file_info, 'r') as source:
+                        image_bytes = source.read(MAX_IMAGE_BYTES + 1)
+                    if not image_bytes:
+                        skipped_files.append({'name': original_name, 'reason': 'empty file in ZIP archive'})
+                        continue
+                    if len(image_bytes) > MAX_IMAGE_BYTES:
+                        skipped_files.append({'name': original_name, 'reason': 'larger than 10 MB'})
+                        continue
+
+                    with Image.open(BytesIO(image_bytes)) as source_image:
+                        source_image.load()
+                        if source_image.width * source_image.height > MAX_IMAGE_PIXELS:
+                            skipped_files.append({'name': original_name, 'reason': 'larger than 25 megapixels'})
+                            continue
+                        normalized_image = source_image.convert('RGB')
+                        normalized_bytes = BytesIO()
+                        normalized_image.save(normalized_bytes, format='JPEG', quality=95)
+                        normalized_image.close()
+                except Exception as image_error:
+                    skipped_files.append({
+                        'name': original_name,
+                        'reason': f'image data is unreadable ({type(image_error).__name__})',
+                    })
+                    continue
+
+                filename = f"dataset_{uuid.uuid4().hex}.jpg"
+                destination = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+                with open(destination, 'wb') as target:
+                    target.write(normalized_bytes.getvalue())
                 files_data.append({
                     'name': original_name,
                     'filename': filename,
@@ -2774,11 +2808,18 @@ def upload_dataset():
                 })
 
         if not files_data:
-            return jsonify({"success": False, "error": "No usable images found in the ZIP file"}), 400
+            return jsonify({
+                "success": False,
+                "error": "No readable images found in the ZIP file.",
+                "skipped": skipped_files,
+                "skipped_count": len(skipped_files),
+            }), 400
         
         return jsonify({
             "success": True,
             "files": files_data,
+            "skipped": skipped_files,
+            "skipped_count": len(skipped_files),
             "preview_urls": [f['preview_url'] for f in files_data],
             "count": len(files_data),
             "message": f"Successfully extracted {len(files_data)} images from dataset"

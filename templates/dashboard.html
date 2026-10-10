@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <title>CoffeeGuard · Smart Coffee Plant Disease and Pest Detection</title>
 
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
@@ -20,7 +20,9 @@
         body {
             background: #faf5f2;
             display: flex;
+            width: 100%;
             min-height: 100vh;
+            min-height: 100dvh;
             position: relative;
             overflow-x: hidden;
             transition: background 0.3s ease, color 0.3s ease;
@@ -256,8 +258,9 @@
             background: #faf5f2;
             position: relative;
             z-index: 2;
+            min-width: 0;
             min-height: 100vh;
-            width: calc(100% - 260px);
+            min-height: 100dvh;
             transition: background 0.3s ease;
         }
 
@@ -267,6 +270,7 @@
 
         .page { display: none; animation: fadeIn 0.35s ease; }
         .page.active { display: block; }
+        .page, .topbar, .section, .grid-2, .cards { min-width: 0; }
 
         @keyframes fadeIn {
             from { opacity: 0; transform: translateY(12px); }
@@ -590,10 +594,11 @@
 
         .grid-2 {
             display: grid;
-            grid-template-columns: 2fr 1fr;
+            grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
             gap: 28px;
             margin-bottom: 32px;
         }
+        .grid-2 > *, .section-header > * { min-width: 0; }
         .grid-2 .section:last-child .chart-container {
             height: 160px !important;
             max-height: 160px;
@@ -611,6 +616,12 @@
         .chart-container {
             position: relative;
             height: 210px;
+            min-width: 0;
+            max-width: 100%;
+            overflow: hidden;
+        }
+        .chart-container canvas {
+            max-width: 100% !important;
         }
         .grid-2 .section:first-child .chart-container {
             height: 210px;
@@ -1544,6 +1555,7 @@
             pointer-events: none;
             z-index: 1;
             opacity: 0.3;
+            max-width: 10vw;
         }
         .leaf-left-1 { top: 5%; left: -8px; transform: rotate(12deg); width: 150px; }
         .leaf-left-2 { bottom: 12%; left: -12px; transform: rotate(-18deg); width: 130px; }
@@ -1743,6 +1755,7 @@
             justify-content: space-around;
             border-top: 2px solid rgba(255,255,255,0.1);
             box-shadow: 0 -4px 20px rgba(0,0,0,0.2);
+            padding-bottom: max(8px, env(safe-area-inset-bottom));
         }
         .bottom-nav a {
             color: rgba(255,255,255,0.6);
@@ -1802,20 +1815,43 @@
             .prediction-stats { grid-template-columns: repeat(3, 1fr); }
             .estimator-grid { grid-template-columns: 1fr 1fr; }
         }
+        @media (max-width: 900px) {
+            .sidebar { display: none; }
+            .bottom-nav { display: flex; }
+            .main {
+                width: 100%;
+                margin-left: 0;
+                padding: 16px 14px calc(84px + env(safe-area-inset-bottom));
+            }
+            .topbar { padding: 16px; }
+            .topbar-left { min-width: 0; width: 100%; }
+            .topbar-left .name-section { min-width: 0; }
+            .topbar-left .name-section h1 { font-size: clamp(1.2rem, 5vw, 1.6rem); overflow-wrap: anywhere; }
+            .topbar-left .name-section p { overflow-wrap: anywhere; }
+            .topbar-actions { flex-wrap: wrap; gap: 8px; }
+            .section { padding: 16px; }
+            .section-header { flex-wrap: wrap; gap: 10px; }
+            #historyContainer { max-width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+            #historyTable { min-width: 560px; }
+            .photo-preview .preview-item { width: min(120px, calc((100vw - 72px) / 2)); height: min(120px, calc((100vw - 72px) / 2)); }
+            .leaf-deco { display: none; }
+        }
+
         @media (max-width: 500px) {
-            .sidebar { width: 60px; padding: 16px 10px; }
-            .sidebar h2 { font-size: 1rem; }
-            .sidebar h2 span { display: none; }
-            .sidebar nav a span { display: none; }
-            .sidebar nav a { justify-content: center; padding: 12px 8px; }
-            .sidebar nav a i { font-size: 1.3rem; width: auto; }
-            .sidebar-footer { display: none; }
-            .main { margin-left: 60px; padding: 16px 12px; width: calc(100% - 60px); }
+            .main { padding-left: 12px; padding-right: 12px; }
+            .bottom-nav a { flex: 1; padding: 4px 2px; }
+            .bottom-nav a span { font-size: 0.58rem; }
             .cards { grid-template-columns: 1fr 1fr; gap: 12px; }
             .card { padding: 16px; }
             .metric { font-size: 1.6rem; }
             .estimator-grid { grid-template-columns: 1fr 1fr; }
             .prediction-stats { grid-template-columns: 1fr 1fr; gap: 10px; }
+        }
+        @media (max-width: 360px) {
+            .cards, .estimator-grid { grid-template-columns: 1fr; }
+            .main { padding-left: 10px; padding-right: 10px; }
+            .section { padding: 14px 12px; }
+            .topbar { padding: 14px 12px; }
         }
         @media print {
             .sidebar, .leaf-deco, .topbar-actions, .btn,
@@ -2042,7 +2078,7 @@
                     <p><strong>Dataset ZIP</strong></p>
                     <p class="sub">Images are extracted automatically</p>
                     <p class="sub">Max 500MB per ZIP file</p>
-                    <p class="sub">Detection starts after loading</p>
+                    <p class="sub">Review images first; prediction starts only when you tap the button</p>
                     <input type="file" id="datasetInput" accept=".zip" onchange="handleDatasetUpload(event)" />
                 </div>
             </div>
@@ -2053,13 +2089,13 @@
                     <input id="useSampleToggle" type="checkbox" />
                     Use a sample for detection
                 </label>
-                <span style="font-size:0.82rem; color:#7d625d;">If you want, choose the population and sampling method below.</span>
+                <span style="font-size:0.82rem; color:#7d625d;">Optional: choose a sampling method. Population is the number of readable images.</span>
             </div>
             <div id="samplePanel" style="margin: 0 0 8px; padding: 14px 16px; background: #fffaf5; border:1px solid #eadfd5; border-radius: 12px; display:none;">
                 <div style="display:flex; flex-wrap:wrap; gap:12px; align-items:end; margin-bottom:8px;">
                     <div>
                         <label style="display:block; font-size:0.8rem; margin-bottom:6px; color:#5d463d; font-weight:600;">Population</label>
-                        <input id="samplePopulation" type="number" min="1" value="1" style="width:120px; padding:10px 12px; border:1px solid #d7c3b8; border-radius:8px; background:#fff;" />
+                        <input id="samplePopulation" type="number" min="1" value="0" readonly aria-label="Number of uploaded images" style="width:120px; padding:10px 12px; border:1px solid #d7c3b8; border-radius:8px; background:#f5f0ec;" />
                     </div>
                     <div>
                         <label style="display:block; font-size:0.8rem; margin-bottom:6px; color:#5d463d; font-weight:600;">Sampling method</label>
@@ -2073,15 +2109,16 @@
                         <div id="sampleSizeValue" style="min-width:90px; padding:10px 12px; border-radius:8px; background:#f2e7df; font-weight:700; color:#8b1a1a; text-align:center;">0</div>
                     </div>
                 </div>
-                <div style="font-size:0.88rem; color:#5d463d;">Selected sample: <strong id="sampleSummary">0 leaves</strong></div>
+                <div style="font-size:0.88rem; color:#5d463d;">Selected sample: <strong id="sampleSummary">0 leaves</strong>. Changing the method draws a fresh random sample from the reviewed images.</div>
             </div>
             <div id="uploadProgress"><div class="progress-bar"><div class="progress-fill" id="progressBar"></div></div><div class="progress-text" id="progressText">Processing 0 of 0...</div></div>
             <div class="photo-preview" id="photoPreview">
+                <div id="imageReviewStatus" role="status" style="margin:0 0 10px; padding:10px 12px; border-radius:8px; background:#eef7ef; color:#285c39;">Images are checked and ready. No disease prediction has run yet.</div>
                 <div class="preview-grid" id="previewContainer"></div>
                 <div style="display:flex; gap:10px; flex-wrap:wrap; margin-top: 12px;">
-                    <button class="btn-success" onclick="analyzeImages()"><i class="fas fa-wand-magic-sparkles"></i> Detect Issues</button>
+                    <button class="btn-success" id="predictImagesButton" onclick="analyzeImages()"><i class="fas fa-microscope"></i> Predict Selected Leaves</button>
                     <button class="btn-primary" onclick="openModal('leafNamingModal')" style="background: #2a5c7a;"><i class="fas fa-tag"></i> Customize Leaf Names</button>
-                    <button class="btn-secondary" onclick="removeAllPhotos()"><i class="fas fa-trash-can"></i> Remove All</button>
+                    <button class="btn-secondary" id="removeAllPhotosButton" onclick="removeAllPhotos()"><i class="fas fa-trash-can"></i> Remove All</button>
                 </div>
             </div>
             <div class="prediction-result" id="predictionResult">
@@ -2582,6 +2619,8 @@ let currentLang = localStorage.getItem('coffeeGuardLang') || 'en';
 let audioEnabled = localStorage.getItem('coffeeGuardAudio') !== 'false';
 let uploadedFiles = [];
 let uploadedPreviewUrls = [];
+let sampledFiles = [];
+let isBatchPredicting = false;
 let isValidating = false;
 let predictions = [];
 let reports = [];
@@ -3267,56 +3306,76 @@ function renderGallery() {
 // ============================================================
 // UPLOAD & ANALYSIS
 // ============================================================
+async function inspectImageFile(file) {
+    const supportedImage = /\.(jpe?g|png|webp|bmp|tiff?)$/i.test(file.name);
+    if (!supportedImage) return 'unsupported image format';
+    if (file.size > 10 * 1024 * 1024) return 'larger than 10 MB';
+
+    const previewUrl = URL.createObjectURL(file);
+    try {
+        const dimensions = await new Promise((resolve, reject) => {
+            const image = new Image();
+            image.onload = () => resolve({ width: image.naturalWidth, height: image.naturalHeight });
+            image.onerror = () => reject(new Error('image could not be decoded'));
+            image.src = previewUrl;
+        });
+        if (!dimensions.width || !dimensions.height) return 'image has no readable dimensions';
+        if (dimensions.width * dimensions.height > 25_000_000) return 'image exceeds the 25-megapixel limit';
+        return null;
+    } catch (_) {
+        return 'file is not a readable image';
+    } finally {
+        URL.revokeObjectURL(previewUrl);
+    }
+}
+
 async function handleMultipleFileUpload(event) {
     const files = event.target.files;
     if (!files || files.length === 0) return;
 
-    const remainingSlots = 300 - uploadedFiles.length;
-    if (files.length > remainingSlots) {
-        document.getElementById('uploadError').classList.add('show');
-        document.getElementById('errorMessage').textContent = remainingSlots > 0
-            ? `Please select ${remainingSlots} or fewer images. You can upload up to 300 images at once.`
-            : 'The maximum of 300 images has already been selected.';
-        document.getElementById('fileInput').value = '';
-        return;
-    }
-    
     document.getElementById('uploadError').classList.remove('show');
     document.getElementById('uploadWarning').classList.remove('show');
-
-    // Coffee-leaf verification and disease analysis happen once, together, in
-    // the protected batch endpoint.  This avoids running the AI twice per leaf.
     const rejectedFiles = [];
     const acceptedFiles = [];
-    for (const file of files) {
-        if (file.size > 10 * 1024 * 1024) {
-            rejectedFiles.push(`${file.name} (too large - max 10MB)`);
-            continue;
+    const imageFiles = Array.from(files).filter(file => /\.(jpe?g|png|webp|bmp|tiff?)$/i.test(file.name));
+    const remainingSlots = Math.max(0, 300 - uploadedFiles.length);
+    if (imageFiles.length > remainingSlots) {
+        document.getElementById('uploadError').classList.add('show');
+        document.getElementById('errorMessage').textContent = remainingSlots > 0
+            ? `Only ${remainingSlots} more image(s) fit. The limit is 300 images per batch.`
+            : 'The maximum of 300 images has already been selected.';
+        event.target.value = '';
+        return;
+    }
+
+    for (const file of imageFiles) {
+        const issue = await inspectImageFile(file);
+        if (issue) {
+            rejectedFiles.push(`${file.name} (${issue})`);
+        } else {
+            acceptedFiles.push(file);
         }
-        if (!file.type.startsWith('image/')) {
-            rejectedFiles.push(`${file.name} (not an image)`);
-            continue;
-        }
-        acceptedFiles.push(file);
     }
     
     if (rejectedFiles.length > 0) {
-        document.getElementById('warningMessage').innerHTML = 
-            `⚠️ ${rejectedFiles.length} file(s) could not be processed:<br>${rejectedFiles.join('<br>')}`;
+        document.getElementById('warningMessage').textContent =
+            `${rejectedFiles.length} file(s) were skipped: ${rejectedFiles.join('; ')}`;
         document.getElementById('uploadWarning').classList.add('show');
     }
     
     if (acceptedFiles.length === 0) {
         showToast('❌ No valid image files to upload.', 'error');
-        document.getElementById('fileInput').value = '';
+        event.target.value = '';
         return;
     }
     for (const file of acceptedFiles) {
         uploadedFiles.push(file);
         uploadedPreviewUrls.push(URL.createObjectURL(file));
     }
+    clearCurrentBatchResults();
+    syncSampleControls(true);
     renderUploadedPreviews();
-    showToast(`✅ ${acceptedFiles.length} image(s) ready for analysis.`, 'success');
+    showToast(`${acceptedFiles.length} image(s) checked and ready. Tap Predict when you are ready.`, 'success');
     event.target.value = '';
 }
 
@@ -3333,21 +3392,36 @@ function renderUploadedPreviews() {
         img.alt = getLeafLabel(index);
         const badge = document.createElement('span');
         badge.className = 'disease-badge';
-        badge.textContent = 'Ready to analyse';
+        const usingSample = Boolean(document.getElementById('useSampleToggle')?.checked);
+        badge.textContent = usingSample
+            ? (sampledFiles.includes(file) ? 'In random sample' : 'Not selected')
+            : 'Checked · ready to predict';
         const removeBtn = document.createElement('button');
         removeBtn.className = 'remove-btn';
         removeBtn.innerHTML = '×';
+        removeBtn.disabled = isBatchPredicting;
         removeBtn.onclick = function(event) {
             event.stopPropagation();
+            if (isBatchPredicting) return;
             uploadedFiles.splice(index, 1);
             URL.revokeObjectURL(uploadedPreviewUrls.splice(index, 1)[0]);
+            clearCurrentBatchResults();
+            syncSampleControls(true);
             renderUploadedPreviews();
         };
         div.append(label, img, badge, removeBtn);
         previewContainer.appendChild(div);
     });
     document.getElementById('photoPreview').style.display = uploadedFiles.length ? 'block' : 'none';
-    syncSampleControls();
+    const reviewStatus = document.getElementById('imageReviewStatus');
+    if (reviewStatus) {
+        const sampleCount = document.getElementById('useSampleToggle')?.checked
+            ? sampledFiles.length
+            : uploadedFiles.length;
+        reviewStatus.textContent = `${uploadedFiles.length} readable image(s) checked. ${sampleCount} will be predicted when you tap the button; no prediction has run yet.`;
+    }
+    const predictButton = document.getElementById('predictImagesButton');
+    if (predictButton) predictButton.disabled = !uploadedFiles.length || isBatchPredicting;
 }
 
 function calculateSampleSize(population, method) {
@@ -3367,7 +3441,7 @@ function calculateSampleSize(population, method) {
     return Math.max(1, Math.min(total, Math.round(adjusted)));
 }
 
-function syncSampleControls() {
+function syncSampleControls(reshuffle = false) {
     const useSampleToggle = document.getElementById('useSampleToggle');
     const populationInput = document.getElementById('samplePopulation');
     const methodSelect = document.getElementById('sampleMethod');
@@ -3378,66 +3452,67 @@ function syncSampleControls() {
 
     const useSample = Boolean(useSampleToggle && useSampleToggle.checked);
     samplePanel.style.display = useSample && uploadedFiles.length ? 'block' : 'none';
-
-    const population = Math.max(1, Number(populationInput.value) || uploadedFiles.length || 1);
+    const population = uploadedFiles.length;
     populationInput.value = population;
     const sampleSize = calculateSampleSize(population, methodSelect.value);
     sampleSizeValue.textContent = sampleSize;
+
+    if (!useSample) {
+        sampledFiles = uploadedFiles.slice();
+    } else {
+        sampledFiles = sampledFiles.filter(file => uploadedFiles.includes(file));
+        if (reshuffle || sampledFiles.length !== sampleSize) {
+            const shuffled = uploadedFiles.slice();
+            for (let i = shuffled.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+            }
+            sampledFiles = shuffled.slice(0, sampleSize);
+        }
+    }
     sampleSummary.textContent = useSample
-        ? (sampleSize >= population ? 'All leaves selected' : `${sampleSize} leaves selected from ${population}`)
-        : 'No sample selected';
+        ? `${sampledFiles.length} of ${population} leaves selected`
+        : `${population} leaves (all selected)`;
 }
 
 function getSampledFiles() {
     const useSampleToggle = document.getElementById('useSampleToggle');
-    const populationInput = document.getElementById('samplePopulation');
-    const methodSelect = document.getElementById('sampleMethod');
     if (!uploadedFiles.length) return [];
-    if (!useSampleToggle || !useSampleToggle.checked) return uploadedFiles;
-    if (!populationInput || !methodSelect) return uploadedFiles;
+    if (!useSampleToggle || !useSampleToggle.checked) return uploadedFiles.slice();
+    return sampledFiles.slice();
+}
 
-    const population = Math.max(1, Number(populationInput.value) || uploadedFiles.length);
-    const sampleSize = calculateSampleSize(population, methodSelect.value);
-    const sourceFiles = uploadedFiles.slice();
-
-    if (sampleSize >= sourceFiles.length) {
-        return sourceFiles;
-    }
-
-    const shuffled = [...sourceFiles];
-    for (let i = shuffled.length - 1; i > 0; i--) {
-        const j = Math.floor(Math.random() * (i + 1));
-        [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
-    }
-    return shuffled.slice(0, sampleSize);
+function clearCurrentBatchResults() {
+    document.getElementById('predictionResult').style.display = 'none';
+    document.getElementById('predictionSummary').style.display = 'none';
+    document.querySelector('.prediction-stats').style.display = 'none';
 }
 
 function removeAllPhotos() {
     uploadedFiles = [];
+    sampledFiles = [];
     uploadedPreviewUrls.forEach(url => URL.revokeObjectURL(url));
     uploadedPreviewUrls = [];
     document.getElementById('previewContainer').innerHTML = '';
     document.getElementById('photoPreview').style.display = 'none';
-    document.getElementById('predictionResult').style.display = 'none';
+    clearCurrentBatchResults();
     document.getElementById('fileInput').value = '';
+    document.getElementById('folderInput').value = '';
+    document.getElementById('datasetInput').value = '';
     document.getElementById('uploadWarning').classList.remove('show');
     document.getElementById('uploadError').classList.remove('show');
+    document.getElementById('uploadProgress').style.display = 'none';
     const useSampleToggle = document.getElementById('useSampleToggle');
-    if (useSampleToggle) {
-        useSampleToggle.checked = false;
-    }
-    if (document.getElementById('samplePopulation')) {
-        document.getElementById('samplePopulation').value = 0;
-    }
-    if (document.getElementById('samplePanel')) {
-        document.getElementById('samplePanel').style.display = 'none';
-    }
+    if (useSampleToggle) useSampleToggle.checked = false;
+    document.getElementById('samplePopulation').value = 0;
+    syncSampleControls();
     showToast('🗑️ All images removed', 'info');
 }
 
 async function analyzeImages() {
+    if (isBatchPredicting) return;
     if (uploadedFiles.length === 0) {
-        showToast('❌ No images to analyze. Please upload valid leaf images first.', 'error');
+        showToast('No checked images to predict. Please add image files first.', 'error');
         return;
     }
 
@@ -3447,6 +3522,11 @@ async function analyzeImages() {
         return;
     }
 
+    const sourceFiles = uploadedFiles.slice();
+    isBatchPredicting = true;
+    document.querySelectorAll('#fileInput, #folderInput, #datasetInput, #useSampleToggle, #sampleMethod, #removeAllPhotosButton')
+        .forEach(control => { control.disabled = true; });
+    renderUploadedPreviews();
     document.getElementById('uploadProgress').style.display = 'block';
     const progressBar = document.getElementById('progressBar');
     const progressText = document.getElementById('progressText');
@@ -3466,7 +3546,7 @@ async function analyzeImages() {
         chunk.forEach(file => formData.append('images', file, file.name));
         const chunkNumber = Math.floor(chunkStart / chunkSize) + 1;
         progressBar.style.width = `${Math.round((chunkStart / filesToAnalyze.length) * 100)}%`;
-        progressText.textContent = `Analysing sampled leaves ${chunkStart + 1}-${chunkStart + chunk.length} of ${filesToAnalyze.length}...`;
+        progressText.textContent = `Predicting selected leaves ${chunkStart + 1}-${chunkStart + chunk.length} of ${filesToAnalyze.length}...`;
 
         try {
             const response = await fetch('/predict_multiple', {
@@ -3486,7 +3566,7 @@ async function analyzeImages() {
                 throw new Error('The analysis server did not return per-leaf results.');
             }
             payload.results.forEach((result, index) => results.push({
-                leafNumber: chunkStart + index + 1,
+                leafNumber: sourceFiles.indexOf(chunk[index]) + 1,
                 result: result.result_key || 'no_disease',
                 confidence: result.confidence || 0,
                 failed: !result.success,
@@ -3501,7 +3581,7 @@ async function analyzeImages() {
         } catch (error) {
             console.error(`Analysis chunk ${chunkNumber} failed:`, error);
             chunk.forEach((file, index) => results.push({
-                leafNumber: chunkStart + index + 1, result: 'no_disease', confidence: 0,
+                leafNumber: sourceFiles.indexOf(file) + 1, result: 'no_disease', confidence: 0,
                 failed: true, disease_count: 0, class_counts: {}, severity: 'healthy',
                 recommendation: error.message || 'Error during analysis.'
             }));
@@ -3509,12 +3589,13 @@ async function analyzeImages() {
     }
 
     progressBar.style.width = '100%';
-    progressText.textContent = 'Complete!';
-    
-    setTimeout(() => {
-        document.getElementById('uploadProgress').style.display = 'none';
-        displayAnalysisResults(results);
-    }, 500);
+    progressText.textContent = 'Prediction complete.';
+    document.getElementById('uploadProgress').style.display = 'none';
+    isBatchPredicting = false;
+    document.querySelectorAll('#fileInput, #folderInput, #datasetInput, #useSampleToggle, #sampleMethod, #removeAllPhotosButton')
+        .forEach(control => { control.disabled = false; });
+    renderUploadedPreviews();
+    displayAnalysisResults(results);
 }
 
 function displayAnalysisResults(results) {
@@ -4227,25 +4308,46 @@ async function handleDatasetUpload(event) {
         const data = await response.json();
         
         if (data.success) {
-            const datasetFiles = await Promise.all((data.files || []).map(async (fileInfo) => {
+            const serverSkipped = (data.skipped || []).map(item => `${item.name} (${item.reason})`);
+            const datasetFiles = [];
+            const rejectedFiles = [];
+            for (const fileInfo of (data.files || [])) {
                 const imageResponse = await fetch(fileInfo.preview_url, {credentials: 'include'});
                 if (!imageResponse.ok) throw new Error(`Could not load ${fileInfo.name}`);
                 const blob = await imageResponse.blob();
-                return new File([blob], fileInfo.name, {type: blob.type || 'image/jpeg'});
-            }));
+                const imageFile = new File([blob], fileInfo.name, {type: blob.type || 'image/jpeg'});
+                const issue = await inspectImageFile(imageFile);
+                if (issue) rejectedFiles.push(`${imageFile.name} (${issue})`);
+                else datasetFiles.push(imageFile);
+            }
+            if (datasetFiles.length === 0) {
+                throw new Error(rejectedFiles.length
+                    ? `No readable images found. ${rejectedFiles.slice(0, 5).join('; ')}`
+                    : 'The ZIP file did not contain readable supported images.');
+            }
             uploadedFiles = datasetFiles;
             uploadedPreviewUrls.forEach(url => URL.revokeObjectURL(url));
             uploadedPreviewUrls = datasetFiles.map(file => URL.createObjectURL(file));
+            clearCurrentBatchResults();
+            const allSkipped = [...serverSkipped, ...rejectedFiles];
+            document.getElementById('uploadWarning').classList.toggle('show', allSkipped.length > 0);
+            document.getElementById('warningMessage').textContent = allSkipped.length
+                ? `${allSkipped.length} ZIP image(s) could not be read: ${allSkipped.slice(0, 10).join('; ')}`
+                : '';
             if (document.getElementById('samplePopulation')) {
                 document.getElementById('samplePopulation').value = datasetFiles.length;
             }
+            syncSampleControls(true);
             renderUploadedPreviews();
-            document.getElementById('progressBar').style.width = '100%';
-            document.getElementById('progressText').textContent = `✅ Extracted ${uploadedFiles.length} images from dataset`;
-            showToast(`✅ Dataset loaded: ${uploadedFiles.length} images ready for analysis`, 'success');
-            syncSampleControls();
-            await analyzeImages();
+            document.getElementById('uploadProgress').style.display = 'none';
+            showToast(`Dataset loaded: ${uploadedFiles.length} image(s) checked. Review them, then tap Predict when ready.`, 'success');
         } else {
+            const skipped = (data.skipped || []).map(item => `${item.name} (${item.reason})`);
+            if (skipped.length) {
+                document.getElementById('warningMessage').textContent =
+                    `${skipped.length} ZIP image(s) could not be read: ${skipped.slice(0, 10).join('; ')}`;
+                document.getElementById('uploadWarning').classList.add('show');
+            }
             throw new Error(data.error || 'Failed to extract dataset');
         }
     } catch (error) {
@@ -4492,15 +4594,24 @@ async function init() {
     const methodSelect = document.getElementById('sampleMethod');
     const useSampleToggle = document.getElementById('useSampleToggle');
     if (populationInput) {
-        populationInput.value = uploadedFiles.length || 1;
-        populationInput.addEventListener('input', syncSampleControls);
+        populationInput.value = uploadedFiles.length;
     }
     if (methodSelect) {
-        methodSelect.addEventListener('change', syncSampleControls);
+        methodSelect.addEventListener('change', () => {
+            if (isBatchPredicting) return;
+            clearCurrentBatchResults();
+            syncSampleControls(true);
+            renderUploadedPreviews();
+        });
     }
     if (useSampleToggle) {
         useSampleToggle.checked = false;
-        useSampleToggle.addEventListener('change', syncSampleControls);
+        useSampleToggle.addEventListener('change', () => {
+            if (isBatchPredicting) return;
+            clearCurrentBatchResults();
+            syncSampleControls(true);
+            renderUploadedPreviews();
+        });
     }
     
     await fetchPredictionsFromServer();
